@@ -12,7 +12,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 
-#define APP_TITLE "Ikemen NX Config v1.0"
+#define APP_TITLE "Ikemen NX Config v1.1"
 #define MAX_INSTALLS 16
 #define ORDERS 10       // arcade.maxmatches values written (orders 1..10)
 #define BOSS_ORDER 10   // bosses that can appear in arcade
@@ -50,8 +50,17 @@ static void tf_insert(TextFile *f, int at, const char *s) {
 }
 
 static void tf_replace(TextFile *f, int i, const char *s) {
+	// s may point into the line being replaced: copy it before freeing.
+	char *copy = strdup(s);
 	free(f->l[i]);
-	f->l[i] = strdup(s);
+	f->l[i] = copy;
+	f->dirty = true;
+}
+
+static void tf_delete(TextFile *f, int i) {
+	free(f->l[i]);
+	memmove(&f->l[i], &f->l[i + 1], (f->n - i - 1) * sizeof *f->l);
+	f->n--;
 	f->dirty = true;
 }
 
@@ -210,6 +219,7 @@ typedef struct {
 	char title[128];     // motif [Info] name
 	TextFile cfg;        // save/config.ini
 	TextFile sel;        // the motif's select.def
+	TextFile mot;        // the motif's system.def
 	char selpath[512];
 	char motifpath[512]; // the motif's system.def
 } Install;
@@ -275,6 +285,7 @@ static bool load_install(Install *in) {
 	if (!tf_load(&in->cfg, cfg)) return false;
 	find_select(in);
 	if (in->selpath[0]) tf_load(&in->sel, in->selpath);
+	tf_load(&in->mot, in->motifpath);
 	return true;
 }
 
@@ -427,7 +438,7 @@ static void setting_change(TextFile *cfg, const Setting *s, int dir) {
 	ini_set(cfg, s->sec, s->key, buf);
 }
 
-static void settings_page(Install *in, const char *title, const Setting *set, int count) {
+static void settings_page(Install *in, TextFile *tf, const char *title, const Setting *set, int count) {
 	int cur = 0;
 	status[0] = 0;
 	while (appletMainLoop()) {
@@ -435,7 +446,7 @@ static void settings_page(Install *in, const char *title, const Setting *set, in
 		printf("\x1b[4;2H\x1b[37m%s (%s)\x1b[0m", in->title[0] ? in->title : in->folder, in->folder);
 		for (int i = 0; i < count; i++) {
 			char val[64];
-			setting_text(&in->cfg, &set[i], val, sizeof val);
+			setting_text(tf, &set[i], val, sizeof val);
 			draw_row(6 + i, i == cur, set[i].label, val);
 		}
 		footer("Arriba/Abajo: elegir   Izq/Der: cambiar   B: volver   +: guardar", set[cur].help);
@@ -443,11 +454,9 @@ static void settings_page(Install *in, const char *title, const Setting *set, in
 		u64 k = input();
 		if (UP(k)) cur = (cur + count - 1) % count;
 		if (DOWN(k)) cur = (cur + 1) % count;
-		if (LEFT(k)) { setting_change(&in->cfg, &set[cur], -1); status[0] = 0; }
-		if (RIGHT(k)) { setting_change(&in->cfg, &set[cur], 1); status[0] = 0; }
-		if (kdown & HidNpadButton_Plus) {
-			set_status(tf_save(&in->cfg) ? "Guardado." : "ERROR al guardar config.ini");
-		}
+		if (LEFT(k)) { setting_change(tf, &set[cur], -1); status[0] = 0; }
+		if (RIGHT(k)) { setting_change(tf, &set[cur], 1); status[0] = 0; }
+		if (kdown & HidNpadButton_Plus) set_status(tf_save(tf) ? "Guardado." : "ERROR al guardar");
 		if (kdown & HidNpadButton_B) return;
 	}
 }
@@ -619,11 +628,12 @@ static void arcade_page(Install *in) {
 
 // ---------------------------------------------------------------------------
 
-static bool dirty(Install *in) { return in->cfg.dirty || in->sel.dirty; }
+static bool dirty(Install *in) { return in->cfg.dirty || in->sel.dirty || in->mot.dirty; }
 
 static bool save_all(Install *in) {
 	bool ok = tf_save(&in->cfg);
 	ok = tf_save(&in->sel) && ok;
+	ok = tf_save(&in->mot) && ok;
 	return ok;
 }
 
@@ -767,13 +777,16 @@ static void slots_page(Install *in) {
 		if (ns && UP(k)) cur = (cur + ns - 1) % ns;
 		if (ns && DOWN(k)) cur = (cur + 1) % ns;
 		if (kdown & HidNpadButton_B) return;
-		if (ns && (kdown & HidNpadButton_A) && !sf[cur].current) {
+		if (ns && (kdown & HidNpadButton_A) && !sf[cur].current && in->mot.dirty) {
+			set_status("Primero guarda (+) los cambios de Pantallas: la grilla reemplaza el system.def.");
+		} else if (ns && (kdown & HidNpadButton_A) && !sf[cur].current) {
 			char from[800], bak[530];
 			snprintf(from, sizeof from, "%s/%s.def", dir, sf[cur].name);
 			snprintf(bak, sizeof bak, "%s.bak", in->motifpath);
 			if (!file_exists(bak)) copy_file(in->motifpath, bak);
 			if (copy_file(from, in->motifpath)) {
 				for (int i = 0; i < ns; i++) sf[i].current = i == cur;
+				tf_load(&in->mot, in->motifpath); // keep Pantallas in sync
 				set_status("Grilla '%s' aplicada.", sf[cur].name);
 			} else {
 				set_status("ERROR al copiar la grilla.");
@@ -782,14 +795,17 @@ static void slots_page(Install *in) {
 	}
 }
 
+#include "pages.h"
+
 static void install_menu(Install *in) {
 	if (!load_install(in)) {
 		set_status("No se pudo leer %s/save/config.ini", in->dir);
 		return;
 	}
-	const char *items[] = { "Arcade (rivales y jefes)", "Reglas de pelea", "Video y sonido", "Rendimiento",
-		"Grilla de seleccion (slots)", "Guardar cambios", "Volver" };
-	const int count = 7;
+	const char *items[] = { "Arcade (rivales y jefes)", "Roster (personajes)", "Escenarios y musica",
+		"Reglas de pelea", "Video y sonido", "Rendimiento", "Pantallas (system.def)",
+		"Grilla de seleccion (slots)", "Editor de archivos", "Guardar cambios", "Volver" };
+	const int count = 11, SAVE = 9;
 	int cur = 0;
 	status[0] = 0;
 	while (appletMainLoop()) {
@@ -798,7 +814,7 @@ static void install_menu(Install *in) {
 		printf("\x1b[5;2H\x1b[30;1mconfig: %s/save/config.ini\x1b[0m", in->dir);
 		printf("\x1b[6;2H\x1b[30;1mselect: %s\x1b[0m", in->selpath[0] ? in->selpath : "(no encontrado)");
 		for (int i = 0; i < count; i++) {
-			const char *v = (i == 5 && dirty(in)) ? "* hay cambios *" : "";
+			const char *v = (i == SAVE && dirty(in)) ? "* hay cambios *" : "";
 			draw_row(8 + i, i == cur, items[i], v);
 		}
 		footer("Arriba/Abajo: elegir   A: entrar   B: volver   +: guardar", "Los cambios se aplican la proxima vez que abras el juego.");
@@ -811,18 +827,23 @@ static void install_menu(Install *in) {
 		if (kdown & HidNpadButton_A) {
 			switch (cur) {
 			case 0: arcade_page(in); break;
-			case 1: settings_page(in, "Reglas de pelea", rules, sizeof rules / sizeof *rules); break;
-			case 2: settings_page(in, "Video y sonido", media, sizeof media / sizeof *media); break;
-			case 3: settings_page(in, "Rendimiento", perf, sizeof perf / sizeof *perf); break;
-			case 4: slots_page(in); break;
-			case 5: set_status(save_all(in) ? "Guardado." : "ERROR al guardar"); break;
-			case 6: back = true; break;
+			case 1: roster_page(in); break;
+			case 2: stages_page(in); break;
+			case 3: settings_page(in, &in->cfg, "Reglas de pelea", rules, sizeof rules / sizeof *rules); break;
+			case 4: settings_page(in, &in->cfg, "Video y sonido", media, sizeof media / sizeof *media); break;
+			case 5: settings_page(in, &in->cfg, "Rendimiento", perf, sizeof perf / sizeof *perf); break;
+			case 6: screens_page(in); break;
+			case 7: slots_page(in); break;
+			case 8: editor_menu(in); break;
+			case 9: set_status(save_all(in) ? "Guardado." : "ERROR al guardar"); break;
+			case 10: back = true; break;
 			}
 		}
 		if (back && confirm_leave(in)) break;
 	}
 	tf_free(&in->cfg);
 	tf_free(&in->sel);
+	tf_free(&in->mot);
 }
 
 #ifdef SELFTEST
@@ -838,6 +859,7 @@ int main(int argc, char **argv) {
 		if (load_install(&inst[i])) {
 			tf_free(&inst[i].cfg);
 			tf_free(&inst[i].sel);
+			tf_free(&inst[i].mot);
 		}
 	}
 	int cur = 0;

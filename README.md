@@ -51,12 +51,23 @@ Recomendaciones para la Switch:
 Abre `switch/nxconfig`, elige una instalación y cambia:
 
 - **Arcade:** rivales por dificultad, jefes finales y qué jefes salen.
+- **Roster** (`select.def`):
+  - activar o quitar personajes (la casilla queda vacía, así la grilla no se mueve);
+  - activar o quitar los miembros de las casillas compartidas;
+  - moverlos de casilla y buscarlos por nombre;
+  - agregar los que están en `chars/` y no en el roster.
+- **Escenarios y música:** activar o quitar escenarios, elegir la música de cada uno entre los archivos de `sound/` y agregar los que están en `stages/` y no en la lista.
 - **Reglas:** dificultad de la CPU, vida, tiempo, rounds, velocidad, continues.
 - **Video y sonido:** formato 16:9, 4:3 o según el escenario, y volúmenes.
 - **Rendimiento:** carga de retratos, música en RAM, límites de efectos.
+- **Pantallas** (`system.def` del screenpack):
+  - duración de la pantalla VS, pantallas de victoria y de continuar, modo demo;
+  - filas y columnas de la grilla;
+  - mostrar, ocultar o renombrar los ítems del menú principal.
 - **Grilla de selección:** para screenpacks que traen variantes en una carpeta `slots/`.
+- **Editor de archivos:** edita línea por línea `config.ini`, `select.def`, `system.def` y los demás `.def` del screenpack con el teclado de la Switch.
 
-La primera vez que guarda un archivo deja una copia `.bak` del original.
+Lo que se quita no se borra del archivo: queda comentado (`;nxoff:` / `;nxhide:`) y se puede reactivar. La primera vez que guarda un archivo deja una copia `.bak` del original.
 
 ## Problemas
 
