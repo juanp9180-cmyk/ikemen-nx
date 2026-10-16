@@ -1,0 +1,389 @@
+From 215ac73592e2cb18bee87e46be9df8554bfb2c89 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 01:05:00 -0300
+Subject: [PATCH 01/10] Nintendo Switch (nx) platform support
+
+---
+ go.mod                |  2 +
+ src/font_gl33.go      |  2 +-
+ src/font_gles32.go    |  2 +-
+ src/main.go           | 10 ++---
+ src/platform_nx.go    | 31 +++++++++++++++
+ src/platform_other.go |  8 ++++
+ src/render_gl33.go    |  2 +-
+ src/render_gles32.go  |  7 +++-
+ src/system.go         |  4 +-
+ src/system_sdl.go     | 14 +++----
+ src/util_desktop.go   |  2 +-
+ src/util_nx.go        | 90 +++++++++++++++++++++++++++++++++++++++++++
+ 12 files changed, 154 insertions(+), 20 deletions(-)
+ create mode 100644 src/platform_nx.go
+ create mode 100644 src/platform_other.go
+ create mode 100644 src/util_nx.go
+
+diff --git a/go.mod b/go.mod
+index 7cc8fd5..63f1bc1 100644
+--- a/go.mod
++++ b/go.mod
+@@ -47,3 +47,5 @@ require (
+ 	golang.org/x/image v0.22.0
+ 	golang.org/x/sys v0.18.0
+ )
++
++replace github.com/veandco/go-sdl2 => ../deps/go-sdl2
+diff --git a/src/font_gl33.go b/src/font_gl33.go
+index 0e7e970..c067d35 100644
+--- a/src/font_gl33.go
++++ b/src/font_gl33.go
+@@ -1,4 +1,4 @@
+-//go:build !android
++//go:build !android && !nx
+ 
+ package main
+ 
+diff --git a/src/font_gles32.go b/src/font_gles32.go
+index b681dda..9d52e31 100644
+--- a/src/font_gles32.go
++++ b/src/font_gles32.go
+@@ -1,4 +1,4 @@
+-//go:build android
++//go:build android || nx
+ 
+ package main
+ 
+diff --git a/src/main.go b/src/main.go
+index e285176..d3274cd 100644
+--- a/src/main.go
++++ b/src/main.go
+@@ -19,7 +19,7 @@ var Version = "development"
+ var BuildTime = "" // Set automatically by GitHub Actions
+ 
+ func init() {
+-	if runtime.GOOS != "android" {
++	if (runtime.GOOS != "android" && !isNX) {
+ 		runtime.LockOSThread()
+ 	}
+ }
+@@ -67,7 +67,7 @@ func realMain() {
+ 		}
+ 	}()
+ 
+-	if runtime.GOOS == "android" {
++	if (runtime.GOOS == "android" || isNX) {
+ 		Logcat("Inside realMain...")
+ 		runtime.LockOSThread()
+ 		sdl.GLSetAttribute(sdl.GL_CONTEXT_PROFILE_MASK, sdl.GL_CONTEXT_PROFILE_ES)
+@@ -121,7 +121,7 @@ func realMain() {
+ 
+ 	// Handle Permissions and Directory Creation
+ 	permission := os.FileMode(0755)
+-	if runtime.GOOS != "android" {
++	if (runtime.GOOS != "android" && !isNX) {
+ 		permission |= os.ModeSticky
+ 	}
+ 
+@@ -151,7 +151,7 @@ func realMain() {
+ 		chk(f.Close())
+ 	}
+ 
+-	if runtime.GOOS == "android" {
++	if (runtime.GOOS == "android" || isNX) {
+ 		sdl.InitSubSystem(sdl.INIT_JOYSTICK)
+ 		sdl.InitSubSystem(sdl.INIT_GAMECONTROLLER)
+ 		Logcat("LOG: Subsystems initialized!")
+@@ -174,7 +174,7 @@ func realMain() {
+ 		panic(err)
+ 	}
+ 	// Force to OpenGL ES 3.2 for Android
+-	if runtime.GOOS == "android" {
++	if (runtime.GOOS == "android" || isNX) {
+ 		cfg.Video.RenderMode = "OpenGL ES 3.2"
+ 	}
+ 	sys.cfg = *cfg
+diff --git a/src/platform_nx.go b/src/platform_nx.go
+new file mode 100644
+index 0000000..522421c
+--- /dev/null
++++ b/src/platform_nx.go
+@@ -0,0 +1,31 @@
++//go:build nx
++
++package main
++
++import (
++	"regexp"
++	"strings"
++)
++
++// isNX reports whether this is the Nintendo Switch (Horizon) build. The
++// Switch follows the Android code paths: OpenGL ES 3.2, fullscreen window,
++// no window icon or desktop dialogs.
++const isNX = true
++
++// gsInMacro matches uses of the GS_IN(name) shader macro.
++var gsInMacro = regexp.MustCompile(`GS_IN\((\w+)\)`)
++
++// expandGSIn expands the GS_IN(name) macro to nameIn. Mesa follows the GLSL
++// ES spec strictly and rejects the ## token pasting the macro is built on.
++func expandGSIn(src string) string {
++	if !strings.Contains(src, "GS_IN") {
++		return src
++	}
++	lines := strings.Split(src, "\n")
++	for i, l := range lines {
++		if strings.HasPrefix(strings.TrimSpace(l), "#define GS_IN(") {
++			lines[i] = ""
++		}
++	}
++	return gsInMacro.ReplaceAllString(strings.Join(lines, "\n"), "${1}In")
++}
+diff --git a/src/platform_other.go b/src/platform_other.go
+new file mode 100644
+index 0000000..f90b770
+--- /dev/null
++++ b/src/platform_other.go
+@@ -0,0 +1,8 @@
++//go:build !nx
++
++package main
++
++// isNX reports whether this is the Nintendo Switch (Horizon) build.
++const isNX = false
++
++func expandGSIn(src string) string { return src }
+diff --git a/src/render_gl33.go b/src/render_gl33.go
+index 00b2303..198b255 100644
+--- a/src/render_gl33.go
++++ b/src/render_gl33.go
+@@ -1,4 +1,4 @@
+-//go:build !android
++//go:build !android && !nx
+ 
+ package main
+ 
+diff --git a/src/render_gles32.go b/src/render_gles32.go
+index b6f27a1..bd53609 100644
+--- a/src/render_gles32.go
++++ b/src/render_gles32.go
+@@ -2,7 +2,7 @@
+ // for GLES 3.2 which is the main version that runs on modern
+ // Android (ARM). Work adapted from Leon Kasovan
+ 
+-//go:build android
++//go:build android || nx
+ 
+ package main
+ 
+@@ -125,10 +125,13 @@ func (r *Renderer_GLES32) compileShader(shaderType uint32, src string) (uint32,
+ 	// GLES 3.0+ drivers REQUIRE the version to be the very first line.
+ 	// If your file doesn't have it, we add it here.
+ 	fullSrc := src
++	if isNX {
++		fullSrc = expandGSIn(fullSrc)
++	}
+ 	if !strings.HasPrefix(strings.TrimSpace(src), "#version") {
+ 		// Anchor to 320 es for best feature compatibility
+ 		header := "#version 320 es\n"
+-		fullSrc = header + src
++		fullSrc = header + fullSrc
+ 	}
+ 
+ 	// Ensure null-termination for CGO
+diff --git a/src/system.go b/src/system.go
+index 5339736..ebd3c8f 100644
+--- a/src/system.go
++++ b/src/system.go
+@@ -405,7 +405,7 @@ func (s *System) init(w, h int32) *lua.LState {
+ 		}
+ 	}
+ 
+-	if runtime.GOOS != "android" {
++	if (runtime.GOOS != "android" && !isNX) {
+ 		exePath, err := os.Executable()
+ 		if err != nil {
+ 			fmt.Println("Error getting executable path:", err)
+@@ -497,7 +497,7 @@ func (s *System) init(w, h int32) *lua.LState {
+ 	systemScriptInit(l)
+ 	s.shortcutScripts = make(map[ShortcutKey]*ShortcutScript)
+ 	s.shaderRefCount = make(map[string]int)
+-	if runtime.GOOS != "android" {
++	if (runtime.GOOS != "android" && !isNX) {
+ 		// So now that we have a window we add an icon.
+ 		if len(s.cfg.Config.WindowIcon) > 0 {
+ 			// First we initialize arrays.
+diff --git a/src/system_sdl.go b/src/system_sdl.go
+index f67ba22..d1d7e5d 100644
+--- a/src/system_sdl.go
++++ b/src/system_sdl.go
+@@ -24,7 +24,7 @@ func (s *System) newWindow(w, h int) (*Window, error) {
+ 	var w2, h2 int32 = int32(w), int32(h)
+ 	var fullscreen bool
+ 
+-	if runtime.GOOS == "android" {
++	if (runtime.GOOS == "android" || isNX) {
+ 		// On Android, we MUST use 0,0 or SDL ignores it anyway,
+ 		// but flags are the critical part.
+ 		window, err = sdl.CreateWindow(
+@@ -44,7 +44,7 @@ func (s *System) newWindow(w, h int) (*Window, error) {
+ 		var windowFlags sdl.WindowFlags = sdl.WINDOW_INPUT_FOCUS
+ 
+ 		// 1. INITIALIZATION & HINTS
+-		if runtime.GOOS == "android" {
++		if (runtime.GOOS == "android" || isNX) {
+ 			// Android ignores these anyway, but WINDOW_FULLSCREEN is the safest anchor
+ 			windowFlags |= sdl.WINDOW_FULLSCREEN | sdl.WINDOW_SHOWN
+ 		} else {
+@@ -53,7 +53,7 @@ func (s *System) newWindow(w, h int) (*Window, error) {
+ 
+ 		// 2. DISPLAY MODE (The Crash Point)
+ 		var desktopW, desktopH int32
+-		if runtime.GOOS != "android" {
++		if (runtime.GOOS != "android" && !isNX) {
+ 			mode, err := sdl.GetDesktopDisplayMode(0)
+ 			if err != nil {
+ 				return nil, fmt.Errorf("failed to obtain primary monitor")
+@@ -73,7 +73,7 @@ func (s *System) newWindow(w, h int) (*Window, error) {
+ 			w2, h2 = int32(sys.cfg.Video.WindowWidth), int32(sys.cfg.Video.WindowHeight)
+ 		}
+ 
+-		if runtime.GOOS != "android" {
++		if (runtime.GOOS != "android" && !isNX) {
+ 			x, y = (desktopW-w2)/2, (desktopH-h2)/2
+ 		}
+ 
+@@ -102,7 +102,7 @@ func (s *System) newWindow(w, h int) (*Window, error) {
+ 		}
+ 
+ 		// 5. WINDOW CREATION
+-		if runtime.GOOS != "android" {
++		if (runtime.GOOS != "android" && !isNX) {
+ 			if fullscreen {
+ 				windowFlags |= sdl.WINDOW_FULLSCREEN_DESKTOP
+ 			}
+@@ -116,7 +116,7 @@ func (s *System) newWindow(w, h int) (*Window, error) {
+ 
+ 		// On Android, use 0,0 for pos and allow SDL to resize w2/h2 to match the device screen
+ 		posX, posY := x, y
+-		if runtime.GOOS == "android" {
++		if (runtime.GOOS == "android" || isNX) {
+ 			posX, posY = 0, 0
+ 		}
+ 
+@@ -249,7 +249,7 @@ func (w *Window) toggleFullscreen() {
+ 		w.Window.SetFullscreen(0)
+ 		w.Window.SetBordered(!sys.cfg.Video.Borderless)
+ 		w.Window.SetSize(int32(w.w), int32(w.h))
+-		if runtime.GOOS != "android" && sys.cfg.Video.WindowCentered {
++		if (runtime.GOOS != "android" && !isNX) && sys.cfg.Video.WindowCentered {
+ 			displayIndex, err := w.Window.GetDisplayIndex()
+ 			if err != nil {
+ 				displayIndex = 0 // default to primary monitor if we have no success
+diff --git a/src/util_desktop.go b/src/util_desktop.go
+index ebd02a8..b134dcd 100644
+--- a/src/util_desktop.go
++++ b/src/util_desktop.go
+@@ -1,4 +1,4 @@
+-//go:build !raw && !android
++//go:build !raw && !android && !nx
+ 
+ package main
+ 
+diff --git a/src/util_nx.go b/src/util_nx.go
+new file mode 100644
+index 0000000..ad81aba
+--- /dev/null
++++ b/src/util_nx.go
+@@ -0,0 +1,90 @@
++//go:build nx
++
++package main
++
++/*
++#include <EGL/egl.h>
++#include <stdlib.h>
++*/
++import "C"
++
++import (
++	"fmt"
++	"io"
++	"os"
++	"runtime"
++	"unsafe"
++)
++
++// Main entry point, called from the C main() of the Switch homebrew.
++// baseDir is the folder holding the engine data, e.g. "sdmc:/switch/ikemen".
++//
++//export GoMain
++func GoMain(baseDir *C.char) {
++	runtime.LockOSThread()
++	sys.baseDir = C.GoString(baseDir)
++	os.Args = []string{"ikemen-go"}
++	realMain()
++}
++
++// Log writer implementation. Stderr is copied to go_stdout.log next to the
++// executable by the Horizon runtime layer.
++func NewLogWriter() io.Writer {
++	return os.Stderr
++}
++
++// There are no desktop dialogs on the Switch: messages go to the log.
++func ShowInfoDialog(message, title string) {
++	fmt.Fprintf(os.Stderr, "INFO [%s]: %s\n", title, message)
++}
++
++func ShowErrorDialog(message string) {
++	fmt.Fprintf(os.Stderr, "I.K.E.M.E.N Error: %s\n", message)
++}
++
++// No interactive dialog here, so never retry
++func ShowRetryDialog(message string) bool {
++	return false
++}
++
++// TTF font loading. There are no system fonts: only the engine's own.
++func LoadFntTtf(f *Fnt, fontfile string, filename string, height int32) {
++	fileDir := SearchFile(filename, []string{fontfile, sys.motif.Def, "", "data/"}, "font/")
++	if FileExist(fileDir) == "" {
++		panic(fmt.Errorf("failed to find ttf font %v", fileDir))
++	}
++	if height == -1 {
++		height = int32(f.Size[1])
++	} else {
++		f.Size[1] = uint16(height)
++	}
++	ttf, err := gfxFont.LoadFont(fileDir, height, int(sys.gameWidth), int(sys.gameHeight))
++	if err != nil {
++		panic(fmt.Errorf("failed to load ttf font %v: %w", fileDir, err))
++	}
++	f.ttf = ttf.(Font)
++
++	// Create Ttf dummy palettes
++	f.palettes = make([][256]uint32, 1)
++	for i := 0; i < 256; i++ {
++		f.palettes[0][i] = 0
++	}
++}
++
++func eglGetProcAddress(name string) unsafe.Pointer {
++	cname := C.CString(name)
++	defer C.free(unsafe.Pointer(cname))
++	return unsafe.Pointer(C.eglGetProcAddress(cname))
++}
++
++// The Switch GPU driver (Mesa nouveau) offers OpenGL ES 3.2 only.
++func selectRenderer(cfgVal string) (Renderer, FontRenderer) {
++	if cfgVal != "OpenGL ES 3.2" {
++		fmt.Printf("RenderMode '%s' is not available on Switch, using OpenGL ES 3.2.\n", cfgVal)
++	}
++	return &Renderer_GLES32{}, &FontRenderer_GLES32{}
++}
++
++func Logcat(s string) {
++	fmt.Println(s)
++}
+-- 
+2.55.0.windows.5
+

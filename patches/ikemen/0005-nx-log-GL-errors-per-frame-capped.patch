@@ -1,0 +1,36 @@
+From 3d19e8d4a1410024e2ca165f78a98b5a4b10810e Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 09:08:08 -0300
+Subject: [PATCH 05/10] nx: log GL errors per frame (capped)
+
+---
+ src/render_gles32.go | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/src/render_gles32.go b/src/render_gles32.go
+index d52d671..2c68b81 100644
+--- a/src/render_gles32.go
++++ b/src/render_gles32.go
+@@ -1079,10 +1079,19 @@ func (r *Renderer_GLES32) BeginFrame(clearColor bool) {
+ 	}
+ }
+ 
++// nxGLErrors counts logged GL errors (Switch diagnostics, capped).
++var nxGLErrors int
++
+ func (r *Renderer_GLES32) EndFrame() {
+ 	if len(r.fbo_pp) == 0 {
+ 		return
+ 	}
++	if isNX && nxGLErrors < 40 {
++		if e := gl.GetError(); e != 0 {
++			nxGLErrors++
++			Logcat(fmt.Sprintf("GL ERROR during frame: %#x (scrrect=%v)", e, sys.scrrect))
++		}
++	}
+ 
+ 	x, y, width, height := int32(0), int32(0), int32(sys.scrrect[2]), int32(sys.scrrect[3])
+ 	time := sdl.GetPerformanceCounter() // consistent time across all shaders
+-- 
+2.55.0.windows.5
+

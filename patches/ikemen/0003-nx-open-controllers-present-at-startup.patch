@@ -1,0 +1,35 @@
+From bf9526a56404a2899958d1ad858fba89d8d62f12 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 08:29:46 -0300
+Subject: [PATCH 03/10] nx: open controllers present at startup
+
+---
+ src/system_sdl.go | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/system_sdl.go b/src/system_sdl.go
+index d1d7e5d..5058747 100644
+--- a/src/system_sdl.go
++++ b/src/system_sdl.go
+@@ -361,7 +361,18 @@ func (w *Window) UpdateDebugFPS() {
+ 	sys.gameFPSprevcount = now
+ }
+ 
++// nxControllersAttached records whether the Switch controllers were opened.
++var nxControllersAttached bool
++
+ func (w *Window) pollEvents() {
++	// SDL on the Switch reports its controllers at init without sending
++	// JOYDEVICEADDED, so open the ones already present once.
++	if isNX && !nxControllersAttached {
++		nxControllersAttached = true
++		for i := 0; i < sdl.NumJoysticks(); i++ {
++			attachController(i)
++		}
++	}
+ 	for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+ 		switch t := event.(type) {
+ 		case sdl.ControllerAxisEvent:
+-- 
+2.55.0.windows.5
+

@@ -1,0 +1,59 @@
+From 87a369f8fc0bf4dd730fcce457ef985d885fa5d2 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 02:09:35 -0300
+Subject: [PATCH 02/10] GLES: create RGBA8_SNORM post-process textures with
+ type BYTE; log framebuffer status on Switch
+
+---
+ src/render_gles32.go | 25 ++++++++++++++++++++++++-
+ 1 file changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/src/render_gles32.go b/src/render_gles32.go
+index bd53609..d52d671 100644
+--- a/src/render_gles32.go
++++ b/src/render_gles32.go
+@@ -874,7 +874,7 @@ func (r *Renderer_GLES32) Init() {
+ 			sys.scrrect[3],
+ 			0,
+ 			gl.RGBA,
+-			gl.UNSIGNED_BYTE,
++			gl.BYTE, // RGBA8_SNORM requires BYTE; Mesa rejects UNSIGNED_BYTE
+ 			nil,
+ 		)
+ 	}
+@@ -987,9 +987,32 @@ func (r *Renderer_GLES32) Init() {
+ 
+ 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+ 
++	if isNX {
++		r.logFramebuffers()
++	}
++
+ 	r.InitStateCache()
+ }
+ 
++// logFramebuffers reports the completeness of every render target, which
++// varies between GLES drivers (Mesa is stricter than most Android drivers).
++func (r *Renderer_GLES32) logFramebuffers() {
++	Logcat(fmt.Sprintf("GLES: scrrect=%v msaa=%d glerror=%#x", sys.scrrect, sys.msaa, gl.GetError()))
++	Logcat("GLES: extensions: " + gl.GoStr(gl.GetString(gl.EXTENSIONS)))
++	check := func(name string, fbo uint32) {
++		gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
++		Logcat(fmt.Sprintf("GLES: framebuffer %s (%d) status=%#x", name, fbo, gl.CheckFramebufferStatus(gl.FRAMEBUFFER)))
++	}
++	check("main", r.fbo)
++	if sys.msaa > 0 {
++		check("resolve", r.fbo_f)
++	}
++	for i, f := range r.fbo_pp {
++		check(fmt.Sprintf("post%d", i), f)
++	}
++	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
++}
++
+ func (r *Renderer_GLES32) Close() {
+ }
+ 
+-- 
+2.55.0.windows.5
+

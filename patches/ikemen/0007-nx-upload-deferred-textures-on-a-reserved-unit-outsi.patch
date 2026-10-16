@@ -1,0 +1,90 @@
+From a9fa12f01d7a705aa8eb0800f3cfb958457c7dd9 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 14:56:15 -0300
+Subject: [PATCH 07/10] nx: upload deferred textures on a reserved unit outside
+ the sprite texture cache
+
+---
+ src/render_gles32.go | 31 +++++++++++++++++++++----------
+ 1 file changed, 21 insertions(+), 10 deletions(-)
+
+diff --git a/src/render_gles32.go b/src/render_gles32.go
+index c904aff..634b4e3 100644
+--- a/src/render_gles32.go
++++ b/src/render_gles32.go
+@@ -231,20 +231,19 @@ type Texture_GLES32 struct {
+ // nxUploads counts deferred texture uploads (Switch diagnostics).
+ var nxUploads int
+ 
+-// flushPending uploads deferred pixel data. It binds the texture on unit 0,
+-// so the sprite texture cache entry for that unit is updated to match.
++// flushPending uploads deferred pixel data on the scratch texture unit, which
++// is kept out of the sprite texture cache. It must not touch the cached
++// units: the draw being prepared may already have bound its other texture
++// (e.g. the palette) on one of them.
+ func (t *Texture_GLES32) flushPending() {
+ 	if t.pending == nil {
+ 		return
+ 	}
+ 	data := t.pending
+ 	t.pending = nil
+-	t.upload(data)
+ 	r := gfx.(*Renderer_GLES32)
+-	if len(r.texCacheTexSerial) > 0 {
+-		r.texCacheTexSerial[0] = t.serial
+-		r.texCacheLastUsed[0] = r.texCacheTimer
+-	}
++	gl.ActiveTexture(gl.TEXTURE0 + uint32(r.uploadUnit))
++	t.uploadBound(data)
+ 	nxUploads++
+ 	if nxUploads%1000 == 0 {
+ 		Logcat(fmt.Sprintf("GLES: %d textures uploaded on demand", nxUploads))
+@@ -363,6 +362,13 @@ func (t *Texture_GLES32) SetData(data []byte) {
+ }
+ 
+ func (t *Texture_GLES32) upload(data []byte) {
++	r := gfx.(*Renderer_GLES32)
++	r.SetActiveTexture0() //gl.ActiveTexture(gl.TEXTURE0)
++	t.uploadBound(data)
++}
++
++// uploadBound binds the texture on the active unit and uploads data.
++func (t *Texture_GLES32) uploadBound(data []byte) {
+ 	var interp int32 = gl.NEAREST
+ 	if t.filter {
+ 		interp = gl.LINEAR
+@@ -373,9 +379,6 @@ func (t *Texture_GLES32) upload(data []byte) {
+ 	uploadFormat := t.MapUploadFormat(bits)
+ 	uploadType := t.MapUploadType(bits)
+ 
+-	r := gfx.(*Renderer_GLES32)
+-	r.SetActiveTexture0() //gl.ActiveTexture(gl.TEXTURE0)
+-
+ 	gl.BindTexture(gl.TEXTURE_2D, t.handle)
+ 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+ 	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+@@ -624,6 +627,7 @@ type GLES32State struct {
+ 	scissorRect         [4]int32
+ 	scissorEnabled      bool
+ 	texCacheTexSerial   []uint64 // Unit to serial number. Sized per GPU
++	uploadUnit          int32    // Texture unit for deferred uploads, outside the cache (Switch)
+ 	texCacheLastUsed    []uint64 // Timer value when the slot was last used. Sized per GPU
+ 	texCacheTimer       uint64   // Increments on every texture access
+ 	uniformICache       map[uint32]int32
+@@ -1089,6 +1093,13 @@ func (r *Renderer_GLES32) InitStateCache() {
+ 	//	fmt.Printf("[GL Debug] GPU supports up to %d textures\n", maxTex)
+ 	//}
+ 
++	// On the Switch the last unit is reserved for deferred texture uploads,
++	// so they never disturb a texture the sprite cache has bound.
++	if isNX && maxTex > 2 {
++		maxTex--
++		r.uploadUnit = maxTex
++	}
++
+ 	// Initialize sprite texture cache
+ 	r.texCacheTexSerial = make([]uint64, maxTex)
+ 	r.texCacheLastUsed = make([]uint64, maxTex)
+-- 
+2.55.0.windows.5
+

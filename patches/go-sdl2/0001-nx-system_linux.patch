@@ -1,0 +1,23 @@
+--- a/sdl/system_linux.go	2026-10-16 11:00:50.617097200 -0300
++++ b/sdl/system_linux.go	2026-10-16 11:00:50.832165500 -0300
+@@ -5,6 +5,12 @@
+ /*
+ #include "sdl_wrapper.h"
+ 
++#if defined(__SWITCH__)
++// Nintendo Switch: SDL is not built for __LINUX__.
++static int SDL_LinuxSetThreadPriority(Sint64 threadID, int priority) { return -1; }
++static int SDL_LinuxSetThreadPriorityAndPolicy(Sint64 threadID, int sdlPriority, int schedPolicy) { return -1; }
++#else
++
+ #if !(SDL_VERSION_ATLEAST(2,0,9))
+ 
+ #if defined(WARN_OUTDATED)
+@@ -30,6 +36,7 @@
+ }
+ 
+ #endif
++#endif // __SWITCH__
+ */
+ import "C"
+ 

@@ -1,0 +1,26 @@
+From c96af461d48eeec94aa07ef1fcac9e039cb626b8 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 23:22:52 -0300
+Subject: [PATCH 4/5] nx: don't use DC ZVA in memclr
+
+---
+ src/runtime/memclr_arm64.s | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/runtime/memclr_arm64.s b/src/runtime/memclr_arm64.s
+index 3f8acdae..9c122593 100644
+--- a/src/runtime/memclr_arm64.s
++++ b/src/runtime/memclr_arm64.s
+@@ -120,7 +120,8 @@ try_zva:
+ 	// [4]    DZP, if bit set DC ZVA instruction is prohibited, else permitted
+ 	// [3:0]  log2 of the block size in words, eg. if it returns 0x4 then block size is 16 words
+ 	MRS	DCZID_EL0, R3
+-	TBZ	$4, R3, init
++	// Nintendo Switch: never use DC ZVA; it does not reliably zero memory
++	// under Horizon emulators. Plain stores are used instead.
+ 	// ZVA not available
+ 	MOVW	$~0, R5
+ 	MOVW	R5, block_size<>(SB)
+-- 
+2.55.0.windows.5
+

@@ -1,0 +1,49 @@
+From 71089c2be886532ae5ec66168eb992a319849b49 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 21:27:18 -0300
+Subject: [PATCH 2/5] nx: don't reuse the g0 stack when already on it
+
+---
+ src/runtime/nx_linux_arm64.s | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/src/runtime/nx_linux_arm64.s b/src/runtime/nx_linux_arm64.s
+index 1e63d880..15d58e80 100644
+--- a/src/runtime/nx_linux_arm64.s
++++ b/src/runtime/nx_linux_arm64.s
+@@ -27,11 +27,32 @@ TEXT _nx_svc(SB),NOSPLIT,$224-0
+ 	STP	(R15, R16), 208(RSP)
+ 	MOVD	R17, 224(RSP)
+ 
++	// Only switch stacks when running on the goroutine stack. Some callers
++	// (nanotime1, walltime) already moved to the g0 stack while g is still
++	// the user goroutine; asmcgocall would then reuse the stack we are on.
++	CBZ	g, direct
++	MOVD	RSP, R10
++	MOVD	(g_stack+stack_lo)(g), R9
++	CMP	R9, R10
++	BLO	direct
++	MOVD	(g_stack+stack_hi)(g), R9
++	CMP	R9, R10
++	BHS	direct
++
+ 	MOVD	_nx_syscall(SB), R9
+ 	MOVD	R9, 8(RSP)
+ 	MOVD	$40(RSP), R9
+ 	MOVD	R9, 16(RSP)
+ 	BL	runtime·asmcgocall(SB)
++	B	done
++
++direct:
++	// Already on a system stack: call C here.
++	MOVD	$40(RSP), R0
++	MOVD	_nx_syscall(SB), R9
++	BL	(R9)
++
++done:
+ 	MOVD	40(RSP), R0
+ 
+ 	LDP	96(RSP), (R1, R2)
+-- 
+2.55.0.windows.5
+

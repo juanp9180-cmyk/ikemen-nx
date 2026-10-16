@@ -1,0 +1,32 @@
+From c204b6cd0ac496ae288eca2cd305c5e16280c126 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 08:53:24 -0300
+Subject: [PATCH 04/10] nx: fall back to Open Sans for missing system TTF fonts
+
+---
+ src/util_nx.go | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/util_nx.go b/src/util_nx.go
+index ad81aba..24841ae 100644
+--- a/src/util_nx.go
++++ b/src/util_nx.go
+@@ -51,7 +51,14 @@ func ShowRetryDialog(message string) bool {
+ func LoadFntTtf(f *Fnt, fontfile string, filename string, height int32) {
+ 	fileDir := SearchFile(filename, []string{fontfile, sys.motif.Def, "", "data/"}, "font/")
+ 	if FileExist(fileDir) == "" {
+-		panic(fmt.Errorf("failed to find ttf font %v", fileDir))
++		// Screenpacks often name desktop system fonts (arial.ttf, ...),
++		// which do not exist here: use the bundled Open Sans instead.
++		fallback := "font/Open_Sans/OpenSans-Regular.ttf"
++		if FileExist(fallback) == "" {
++			panic(fmt.Errorf("failed to find ttf font %v", fileDir))
++		}
++		fmt.Fprintf(os.Stderr, "Font %v not found, using %v\n", fileDir, fallback)
++		fileDir = fallback
+ 	}
+ 	if height == -1 {
+ 		height = int32(f.Size[1])
+-- 
+2.55.0.windows.5
+

@@ -1,0 +1,286 @@
+From 4e32e685e8a8901bd291989b2f3f8f6410a55f61 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 21:06:52 -0300
+Subject: [PATCH 1/5] Horizon (Nintendo Switch) support for linux/arm64
+ c-archive builds
+
+---
+ .../runtime/syscall/linux/asm_linux_arm64.s   |  3 ++
+ src/runtime/asm_arm64.s                       |  6 +++
+ src/runtime/cgo/gcc_clearenv.c                |  7 +++
+ src/runtime/cgo/gcc_mmap.c                    |  8 ++++
+ src/runtime/cgo/gcc_sigaction.c               | 12 +++++
+ src/runtime/cgo/linux_syscall.c               |  6 +++
+ src/runtime/cgo/nx_linux_arm64.go             | 19 ++++++++
+ src/runtime/malloc.go                         |  2 +-
+ src/runtime/nx_linux_arm64.go                 | 22 +++++++++
+ src/runtime/nx_linux_arm64.s                  | 46 +++++++++++++++++++
+ src/runtime/sys_linux_arm64.s                 |  3 ++
+ src/syscall/asm_linux_arm64.s                 |  3 ++
+ 12 files changed, 136 insertions(+), 1 deletion(-)
+ create mode 100644 src/runtime/cgo/nx_linux_arm64.go
+ create mode 100644 src/runtime/nx_linux_arm64.go
+ create mode 100644 src/runtime/nx_linux_arm64.s
+
+diff --git a/src/internal/runtime/syscall/linux/asm_linux_arm64.s b/src/internal/runtime/syscall/linux/asm_linux_arm64.s
+index 83e862ff..805a4f64 100644
+--- a/src/internal/runtime/syscall/linux/asm_linux_arm64.s
++++ b/src/internal/runtime/syscall/linux/asm_linux_arm64.s
+@@ -4,6 +4,9 @@
+ 
+ #include "textflag.h"
+ 
++// Nintendo Switch: route Linux system calls to the libnx emulation layer.
++#define SVC MOVD R30, R16; BL _nx_svc(SB); MOVD R16, R30
++
+ // func Syscall6(num, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, errno uintptr)
+ TEXT ·Syscall6(SB),NOSPLIT,$0-80
+ 	MOVD	num+0(FP), R8	// syscall entry
+diff --git a/src/runtime/asm_arm64.s b/src/runtime/asm_arm64.s
+index d8b91b27..29512278 100644
+--- a/src/runtime/asm_arm64.s
++++ b/src/runtime/asm_arm64.s
+@@ -38,6 +38,12 @@ TEXT _rt0_arm64_lib(SB),NOSPLIT,$184
+ 	// Initialize g as null in case of using g later e.g. sigaction in cgo_sigaction.go
+ 	MOVD	ZR, g
+ 
++#ifdef GOOS_linux
++	// Nintendo Switch: constructors get no argc/argv, use the static block.
++	MOVD	ZR, R0
++	MOVD	_nx_argv(SB), R1
++	ADD	$8, R1	// skip argc slot
++#endif
+ 	MOVD	R0, _rt0_arm64_lib_argc<>(SB)
+ 	MOVD	R1, _rt0_arm64_lib_argv<>(SB)
+ 
+diff --git a/src/runtime/cgo/gcc_clearenv.c b/src/runtime/cgo/gcc_clearenv.c
+index c4f69c1e..6d270449 100644
+--- a/src/runtime/cgo/gcc_clearenv.c
++++ b/src/runtime/cgo/gcc_clearenv.c
+@@ -13,6 +13,13 @@ void
+ x_cgo_clearenv(void **env __attribute__((unused)))
+ {
+ 	_cgo_tsan_acquire();
++#ifdef __SWITCH__
++	{
++		extern char **environ;
++		environ = NULL;
++	}
++#else
+ 	clearenv();
++#endif
+ 	_cgo_tsan_release();
+ }
+diff --git a/src/runtime/cgo/gcc_mmap.c b/src/runtime/cgo/gcc_mmap.c
+index eb710a03..da2cbae3 100644
+--- a/src/runtime/cgo/gcc_mmap.c
++++ b/src/runtime/cgo/gcc_mmap.c
+@@ -7,7 +7,15 @@
+ #include <errno.h>
+ #include <stdint.h>
+ #include <stdlib.h>
++#ifdef __SWITCH__
++// Nintendo Switch: implemented in gcc_horizon.c.
++#include <sys/types.h>
++#define MAP_FAILED ((void*)-1)
++void* mmap(void*, size_t, int, int, int, off_t);
++int munmap(void*, size_t);
++#else
+ #include <sys/mman.h>
++#endif
+ 
+ #include "libcgo.h"
+ 
+diff --git a/src/runtime/cgo/gcc_sigaction.c b/src/runtime/cgo/gcc_sigaction.c
+index f7a10df0..ebc56e82 100644
+--- a/src/runtime/cgo/gcc_sigaction.c
++++ b/src/runtime/cgo/gcc_sigaction.c
+@@ -27,6 +27,17 @@ typedef struct {
+ #endif
+ } go_sigaction_t;
+ 
++#ifdef __SWITCH__
++// Nintendo Switch: Horizon has no signals.
++int32_t
++x_cgo_sigaction(intptr_t signum, const go_sigaction_t *goact, go_sigaction_t *oldgoact) {
++	if (oldgoact != NULL) {
++		memset(oldgoact, 0, sizeof *oldgoact);
++	}
++	return 0;
++}
++#else
++
+ // SA_RESTORER is part of the kernel interface.
+ // This is Linux i386/amd64 specific.
+ #ifndef SA_RESTORER
+@@ -85,3 +96,4 @@ x_cgo_sigaction(intptr_t signum, const go_sigaction_t *goact, go_sigaction_t *ol
+ 	_cgo_tsan_release();
+ 	return ret;
+ }
++#endif // __SWITCH__
+diff --git a/src/runtime/cgo/linux_syscall.c b/src/runtime/cgo/linux_syscall.c
+index 0ea2da71..20f48fb0 100644
+--- a/src/runtime/cgo/linux_syscall.c
++++ b/src/runtime/cgo/linux_syscall.c
+@@ -14,6 +14,12 @@
+ #include <errno.h>
+ #include "libcgo.h"
+ 
++#ifdef __SWITCH__
++// Nintendo Switch: no users or groups.
++static int setresgid(gid_t r, gid_t e, gid_t s) { errno = ENOSYS; return -1; }
++static int setresuid(uid_t r, uid_t e, uid_t s) { errno = ENOSYS; return -1; }
++#endif
++
+ /*
+  * Assumed POSIX compliant libc system call wrappers. For linux, the
+  * glibc/nptl/setxid mechanism ensures that POSIX semantics are
+diff --git a/src/runtime/cgo/nx_linux_arm64.go b/src/runtime/cgo/nx_linux_arm64.go
+new file mode 100644
+index 00000000..5565f736
+--- /dev/null
++++ b/src/runtime/cgo/nx_linux_arm64.go
+@@ -0,0 +1,19 @@
++// Nintendo Switch (Horizon) port support. See runtime/nx_linux_arm64.go.
++
++//go:build linux && arm64
++
++package cgo
++
++import _ "unsafe"
++
++//go:cgo_import_static x_nx_syscall
++//go:linkname x_nx_syscall x_nx_syscall
++//go:linkname _nx_syscall _nx_syscall
++var x_nx_syscall byte
++var _nx_syscall = &x_nx_syscall
++
++//go:cgo_import_static x_nx_argv
++//go:linkname x_nx_argv x_nx_argv
++//go:linkname _nx_argv _nx_argv
++var x_nx_argv byte
++var _nx_argv = &x_nx_argv
+diff --git a/src/runtime/malloc.go b/src/runtime/malloc.go
+index 8c5ec383..31497b16 100644
+--- a/src/runtime/malloc.go
++++ b/src/runtime/malloc.go
+@@ -210,7 +210,7 @@ const (
+ 	// to a 48-bit address space like every other arm64 platform.
+ 	//
+ 	// WebAssembly currently has a limit of 4GB linear memory.
+-	heapAddrBits = (_64bit*(1-goarch.IsWasm)*(1-goos.IsIos*goarch.IsArm64))*48 + (1-_64bit+goarch.IsWasm)*(32-(goarch.IsMips+goarch.IsMipsle)) + 40*goos.IsIos*goarch.IsArm64
++	heapAddrBits = (_64bit*(1-goarch.IsWasm)*(1-goos.IsIos*goarch.IsArm64)*(1-goos.IsLinux*goarch.IsArm64))*48 + (1-_64bit+goarch.IsWasm)*(32-(goarch.IsMips+goarch.IsMipsle)) + 40*goos.IsIos*goarch.IsArm64 + 39*goos.IsLinux*goarch.IsArm64
+ 
+ 	// maxAlloc is the maximum size of an allocation. On 64-bit,
+ 	// it's theoretically possible to allocate 1<<heapAddrBits bytes. On
+diff --git a/src/runtime/nx_linux_arm64.go b/src/runtime/nx_linux_arm64.go
+new file mode 100644
+index 00000000..295a5b78
+--- /dev/null
++++ b/src/runtime/nx_linux_arm64.go
+@@ -0,0 +1,22 @@
++// Nintendo Switch (Horizon) port support.
++//
++// The Go runtime is built as GOOS=linux GOARCH=arm64. Every Linux system
++// call instruction (SVC) is redirected to _nx_svc, which forwards the call
++// to a C emulation layer on top of libnx (runtime/cgo/gcc_horizon.c).
++
++//go:build linux && arm64
++
++package runtime
++
++import "unsafe"
++
++// _nx_syscall is the C emulation entry point, filled in by runtime/cgo.
++//
++//go:linkname _nx_syscall _nx_syscall
++var _nx_syscall unsafe.Pointer
++
++// _nx_argv points to a static argv/envp/auxv block, filled in by runtime/cgo.
++// Horizon does not pass any arguments to global constructors.
++//
++//go:linkname _nx_argv _nx_argv
++var _nx_argv unsafe.Pointer
+diff --git a/src/runtime/nx_linux_arm64.s b/src/runtime/nx_linux_arm64.s
+new file mode 100644
+index 00000000..1e63d880
+--- /dev/null
++++ b/src/runtime/nx_linux_arm64.s
+@@ -0,0 +1,46 @@
++// Nintendo Switch (Horizon) port support. See nx_linux_arm64.go.
++
++#include "go_asm.h"
++#include "textflag.h"
++
++// _nx_svc emulates the Linux SVC instruction.
++// In: R8 = syscall number, R0-R5 = arguments. Out: R0 = result or -errno.
++// Every other general purpose register is preserved, like a real SVC.
++// The caller saves LR in R16 (see the SVC macro in sys_linux_arm64.s).
++TEXT _nx_svc(SB),NOSPLIT,$224-0
++	// args block: [nr, a0, a1, a2, a3, a4, a5] at 40(RSP)
++	MOVD	R8, 40(RSP)
++	MOVD	R0, 48(RSP)
++	MOVD	R1, 56(RSP)
++	MOVD	R2, 64(RSP)
++	MOVD	R3, 72(RSP)
++	MOVD	R4, 80(RSP)
++	MOVD	R5, 88(RSP)
++	// save R1-R17 at 96(RSP)
++	STP	(R1, R2), 96(RSP)
++	STP	(R3, R4), 112(RSP)
++	STP	(R5, R6), 128(RSP)
++	STP	(R7, R8), 144(RSP)
++	STP	(R9, R10), 160(RSP)
++	STP	(R11, R12), 176(RSP)
++	STP	(R13, R14), 192(RSP)
++	STP	(R15, R16), 208(RSP)
++	MOVD	R17, 224(RSP)
++
++	MOVD	_nx_syscall(SB), R9
++	MOVD	R9, 8(RSP)
++	MOVD	$40(RSP), R9
++	MOVD	R9, 16(RSP)
++	BL	runtime·asmcgocall(SB)
++	MOVD	40(RSP), R0
++
++	LDP	96(RSP), (R1, R2)
++	LDP	112(RSP), (R3, R4)
++	LDP	128(RSP), (R5, R6)
++	LDP	144(RSP), (R7, R8)
++	LDP	160(RSP), (R9, R10)
++	LDP	176(RSP), (R11, R12)
++	LDP	192(RSP), (R13, R14)
++	LDP	208(RSP), (R15, R16)
++	MOVD	224(RSP), R17
++	RET
+diff --git a/src/runtime/sys_linux_arm64.s b/src/runtime/sys_linux_arm64.s
+index 88f72135..3ca8ff1a 100644
+--- a/src/runtime/sys_linux_arm64.s
++++ b/src/runtime/sys_linux_arm64.s
+@@ -9,6 +9,9 @@
+ #include "go_asm.h"
+ #include "go_tls.h"
+ #include "textflag.h"
++
++// Nintendo Switch: route Linux system calls to the libnx emulation layer.
++#define SVC MOVD R30, R16; BL _nx_svc(SB); MOVD R16, R30
+ #include "cgo/abi_arm64.h"
+ 
+ #define AT_FDCWD -100
+diff --git a/src/syscall/asm_linux_arm64.s b/src/syscall/asm_linux_arm64.s
+index 883645f9..6a27b624 100644
+--- a/src/syscall/asm_linux_arm64.s
++++ b/src/syscall/asm_linux_arm64.s
+@@ -4,6 +4,9 @@
+ 
+ #include "textflag.h"
+ 
++// Nintendo Switch: route Linux system calls to the libnx emulation layer.
++#define SVC MOVD R30, R16; BL _nx_svc(SB); MOVD R16, R30
++
+ // func rawVforkSyscall(trap, a1, a2, a3 uintptr) (r1, err uintptr)
+ TEXT ·rawVforkSyscall(SB),NOSPLIT,$0-48
+ 	MOVD	a1+8(FP), R0
+-- 
+2.55.0.windows.5
+

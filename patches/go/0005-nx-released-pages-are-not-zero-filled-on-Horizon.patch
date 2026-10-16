@@ -1,0 +1,25 @@
+From dae2b1bb3a9e45ffb16a06c2e1eb606c91c5ec29 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 23:58:10 -0300
+Subject: [PATCH 5/5] nx: released pages are not zero-filled on Horizon
+
+---
+ src/runtime/mem_linux.go | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/runtime/mem_linux.go b/src/runtime/mem_linux.go
+index ce255376..fd8f4a5a 100644
+--- a/src/runtime/mem_linux.go
++++ b/src/runtime/mem_linux.go
+@@ -190,5 +190,7 @@ func sysMapOS(v unsafe.Pointer, n uintptr, vmaName string) {
+ }
+ 
+ func needZeroAfterSysUnusedOS() bool {
+-	return debug.madvdontneed == 0
++	// Nintendo Switch: madvise is emulated as a no-op on Horizon, so released
++	// pages keep their contents and must be zeroed by the runtime.
++	return true
+ }
+-- 
+2.55.0.windows.5
+

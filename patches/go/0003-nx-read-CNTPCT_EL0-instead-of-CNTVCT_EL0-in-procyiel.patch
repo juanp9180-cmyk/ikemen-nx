@@ -1,0 +1,32 @@
+From 829ee1c4fe9828432e10e6b699fed478a340814d Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 23:14:06 -0300
+Subject: [PATCH 3/5] nx: read CNTPCT_EL0 instead of CNTVCT_EL0 in procyield
+
+---
+ src/runtime/asm_arm64.s | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/runtime/asm_arm64.s b/src/runtime/asm_arm64.s
+index 29512278..bf87a5e8 100644
+--- a/src/runtime/asm_arm64.s
++++ b/src/runtime/asm_arm64.s
+@@ -724,13 +724,13 @@ TEXT runtime·procyieldAsm(SB),NOSPLIT,$0-0
+ 	LSR     $30, R0, R0
+ 	CBZ     R0, done
+ 	// start = current counter/timer value
+-	MRS     CNTVCT_EL0, R2
++	MRS     CNTPCT_EL0, R2 // Nintendo Switch: CNTVCT is not readable on Horizon
+ delay:
+ 	// Delay using ISB for all ticks.
+ 	ISB     $15
+ 	// Substract and compare to handle counter roll-over.
+ 	// counter_read() - start < delay_ticks
+-	MRS     CNTVCT_EL0, R1
++	MRS     CNTPCT_EL0, R1
+ 	SUB     R2, R1, R1
+ 	CMP     R0, R1
+ 	BCC     delay
+-- 
+2.55.0.windows.5
+

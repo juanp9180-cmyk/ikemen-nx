@@ -1,0 +1,388 @@
+From cbcf5b1b2f1c1509bff52cd7c7f585c4131fdda3 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 12:53:55 -0300
+Subject: [PATCH 09/10] nx: pack small sprite and palette textures into atlas
+ pages (driver fails past ~3000 textures)
+
+---
+ src/render_gles32.go         |  43 ++++++-
+ src/render_gles32_atlas.go   | 220 +++++++++++++++++++++++++++++++++++
+ src/shaders/sprite.frag.glsl |  17 ++-
+ 3 files changed, 276 insertions(+), 4 deletions(-)
+ create mode 100644 src/render_gles32_atlas.go
+
+diff --git a/src/render_gles32.go b/src/render_gles32.go
+index 634b4e3..783a9e3 100644
+--- a/src/render_gles32.go
++++ b/src/render_gles32.go
+@@ -226,6 +226,10 @@ type Texture_GLES32 struct {
+ 	serial uint64 // Go side serial number
+ 	// pending holds pixel data not uploaded yet (Switch only, see SetData).
+ 	pending []byte
++	// page is the shared atlas page holding this texture at (ax, ay), or
++	// nil for a texture of its own (Switch only, see render_gles32_atlas.go).
++	page   *nxAtlasPage
++	ax, ay int32
+ }
+ 
+ // nxUploads counts deferred texture uploads (Switch diagnostics).
+@@ -278,6 +282,10 @@ func (r *Renderer_GLES32) generateTexture(width, height, depth int32, filter boo
+ 
+ // Creates a generic texture
+ func (r *Renderer_GLES32) newTexture(width, height, depth int32, filter bool) Texture {
++	if t := r.newAtlasTexture(width, height, depth, filter); t != nil {
++		return t
++	}
++
+ 	r.SetActiveTexture0() //gl.ActiveTexture(gl.TEXTURE0)
+ 
+ 	t := r.generateTexture(width, height, depth, filter)
+@@ -289,8 +297,11 @@ func (r *Renderer_GLES32) newPaletteTexture() Texture {
+ 	return r.newTexture(256, 1, 32, false)
+ }
+ 
++// Model textures are sampled with their own UVs and wrap modes, so they
++// never go into an atlas.
+ func (r *Renderer_GLES32) newModelTexture(width, height, depth int32, filter bool) Texture {
+-	return r.newTexture(width, height, depth, filter)
++	r.SetActiveTexture0()
++	return r.generateTexture(width, height, depth, filter)
+ }
+ 
+ func (r *Renderer_GLES32) newDataTexture(width, height int32) Texture {
+@@ -350,6 +361,12 @@ func (r *Renderer_GLES32) newCubeMapTexture(widthHeight int32, mipmap bool, lowe
+ // every GPU texture is a separate nvmap allocation with a minimum size, so
+ // uploading them all exhausts GPU memory (GL_OUT_OF_MEMORY).
+ func (t *Texture_GLES32) SetData(data []byte) {
++	// Atlas entries share a page texture, so they cost no extra GPU
++	// allocation and are written right away.
++	if t.page != nil {
++		t.uploadAtlas(data)
++		return
++	}
+ 	// Large true-color images (stage backgrounds, HD screenpack art) are
+ 	// few and heavy, so they still go to the GPU right away to keep the Go
+ 	// heap small; the thousands of paletted or small sprites wait.
+@@ -397,6 +414,11 @@ func (t *Texture_GLES32) uploadBound(data []byte) {
+ 
+ func (t *Texture_GLES32) SetSubData(data []byte, x, y, width, height, stride int32) {
+ 	t.flushPending()
++	if t.page != nil {
++		// Atlas entry: write inside its area of the shared page.
++		x += t.ax
++		y += t.ay
++	}
+ 	var interp int32 = gl.NEAREST
+ 	if t.filter {
+ 		interp = gl.LINEAR
+@@ -450,6 +472,10 @@ func (t *Texture_GLES32) SetSubData(data []byte, x, y, width, height, stride int
+ 
+ func (t *Texture_GLES32) SetDataG(data []byte, mag, min, ws, wt TextureSamplingParam) {
+ 	t.pending = nil
++	if t.page != nil {
++		t.uploadAtlas(data)
++		return
++	}
+ 	bits := Max(t.depth, 8)
+ 	internalFormat := t.MapSizedInternalFormat(bits)
+ 	uploadFormat := t.MapUploadFormat(bits)
+@@ -804,7 +830,7 @@ func (r *Renderer_GLES32) Init() {
+ 	r.spriteShader, _ = r.newShaderProgram(vertShader, fragShader, "", "Main Shader", true)
+ 	r.spriteShader.RegisterAttributes("position", "uv")
+ 	r.spriteShader.RegisterUniforms("modelview", "projection", "x1x2x4x3",
+-		"alpha", "tint", "mask", "neg", "gray", "add", "mult", "isFlat", "isRgba", "isTrapez", "hue")
++		"alpha", "tint", "mask", "neg", "gray", "add", "mult", "isFlat", "isRgba", "isTrapez", "hue", "texRect", "palV")
+ 	r.spriteShader.RegisterTextures("pal", "tex")
+ 
+ 	// Configure spriteVAO
+@@ -2066,6 +2092,19 @@ func (r *Renderer_GLES32) SetActiveTexture0() {
+ func (r *Renderer_GLES32) SetTextureSub(uMap map[string]int32, tMap map[string]int, name string, tex Texture) {
+ 	t := tex.(*Texture_GLES32)
+ 	t.flushPending()
++	// Where the sprite or palette lives in its texture (atlas pages on the
++	// Switch; the whole texture otherwise).
++	switch name {
++	case "tex":
++		if l, ok := uMap["texRect"]; ok {
++			u0, v0, du, dv := t.texRect()
++			r.SetUniformFSub(l, u0, v0, du, dv)
++		}
++	case "pal":
++		if l, ok := uMap["palV"]; ok {
++			r.SetUniformFSub(l, t.palV())
++		}
++	}
+ 	loc := uMap[name]
+ 
+ 	// Cached path for the sprite shader
+diff --git a/src/render_gles32_atlas.go b/src/render_gles32_atlas.go
+new file mode 100644
+index 0000000..d4a1780
+--- /dev/null
++++ b/src/render_gles32_atlas.go
+@@ -0,0 +1,220 @@
++//go:build android || nx
++
++package main
++
++import (
++	"fmt"
++	"runtime"
++	"unsafe"
++
++	gl "github.com/leonkasovan/gl/v3.2/gles2"
++)
++
++// Texture atlases for the Switch.
++//
++// Ikemen creates one GPU texture per sprite and per palette. On the Switch
++// every texture is a separate GPU (nvmap) allocation, and the driver fails
++// with GL_OUT_OF_MEMORY at around 3000 of them, which a Turns or Simul match
++// with several characters easily exceeds: sprites past the limit are simply
++// not drawn. Small nearest-filtered textures are packed into shared pages
++// instead; the sprite shader maps sprite UVs into the page with the texRect
++// uniform and selects the palette row with palV.
++
++type nxAtlasShelf struct{ y, h, x int32 }
++
++type nxAtlasPage struct {
++	handle  uint32
++	serial  uint64
++	set     *nxAtlasSet
++	shelves []nxAtlasShelf
++	nextY   int32
++	refs    int
++}
++
++type nxAtlasSet struct {
++	name   string
++	depth  int32 // 8 = R8, 32 = RGBA8
++	w, h   int32 // page size
++	pad    int32 // transparent border around each entry
++	maxDim int32 // largest entry side accepted
++	pages  []*nxAtlasPage
++}
++
++var (
++	nxAtlas8   = &nxAtlasSet{name: "R8", depth: 8, w: 2048, h: 2048, pad: 1, maxDim: 1024}
++	nxAtlas32  = &nxAtlasSet{name: "RGBA", depth: 32, w: 2048, h: 2048, pad: 1, maxDim: 512}
++	nxAtlasPal = &nxAtlasSet{name: "PAL", depth: 32, w: 256, h: 1024, pad: 0, maxDim: 256}
++)
++
++// nxAtlasFor picks the atlas for a texture, or nil to use its own texture.
++func nxAtlasFor(width, height, depth int32, filter bool) *nxAtlasSet {
++	if !isNX || filter || width <= 0 || height <= 0 {
++		return nil
++	}
++	switch {
++	case depth == 32 && width == 256 && height == 1:
++		return nxAtlasPal
++	case depth == 8 && width <= nxAtlas8.maxDim && height <= nxAtlas8.maxDim:
++		return nxAtlas8
++	case depth == 32 && width <= nxAtlas32.maxDim && height <= nxAtlas32.maxDim:
++		return nxAtlas32
++	}
++	return nil
++}
++
++func (s *nxAtlasSet) format() (internal int32, format uint32) {
++	if s.depth == 8 {
++		return gl.R8, gl.RED
++	}
++	return gl.RGBA8, gl.RGBA
++}
++
++func (s *nxAtlasSet) newPage() *nxAtlasPage {
++	r := gfx.(*Renderer_GLES32)
++	var h uint32
++	gl.GenTextures(1, &h)
++	textureSerialNumber++
++	p := &nxAtlasPage{handle: h, serial: textureSerialNumber, set: s}
++	internal, format := s.format()
++	// Start from a cleared page so borders read as transparent.
++	zero := make([]byte, int(s.w)*int(s.h)*int(s.depth/8))
++	gl.ActiveTexture(gl.TEXTURE0 + uint32(r.uploadUnit))
++	gl.BindTexture(gl.TEXTURE_2D, h)
++	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
++	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
++	gl.TexImage2D(gl.TEXTURE_2D, 0, internal, s.w, s.h, 0, format, gl.UNSIGNED_BYTE, unsafe.Pointer(&zero[0]))
++	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
++	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
++	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
++	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
++	s.pages = append(s.pages, p)
++	return p
++}
++
++// place finds room for a w x h block (padding included) using shelves.
++func (p *nxAtlasPage) place(w, h int32) (int32, int32, bool) {
++	s := p.set
++	best := -1
++	for i := range p.shelves {
++		sh := &p.shelves[i]
++		// Fit in an existing shelf if it is not much taller than needed.
++		if h <= sh.h && sh.h <= h+h/2+8 && sh.x+w <= s.w {
++			if best < 0 || sh.h < p.shelves[best].h {
++				best = i
++			}
++		}
++	}
++	if best >= 0 {
++		sh := &p.shelves[best]
++		x := sh.x
++		sh.x += w
++		return x, sh.y, true
++	}
++	if p.nextY+h > s.h {
++		return 0, 0, false
++	}
++	y := p.nextY
++	p.shelves = append(p.shelves, nxAtlasShelf{y: y, h: h, x: w})
++	p.nextY += h
++	return 0, y, true
++}
++
++// alloc reserves room for a width x height entry; x, y exclude the padding.
++func (s *nxAtlasSet) alloc(width, height int32) (*nxAtlasPage, int32, int32) {
++	w, h := width+2*s.pad, height+2*s.pad
++	for _, p := range s.pages {
++		if x, y, ok := p.place(w, h); ok {
++			p.refs++
++			return p, x + s.pad, y + s.pad
++		}
++	}
++	p := s.newPage()
++	x, y, _ := p.place(w, h)
++	p.refs++
++	if len(s.pages)%8 == 0 {
++		Logcat(fmt.Sprintf("GLES: %s atlas pages: %d", s.name, len(s.pages)))
++	}
++	return p, x + s.pad, y + s.pad
++}
++
++// release frees one entry; an empty page is reused from scratch.
++func (p *nxAtlasPage) release() {
++	p.refs--
++	if p.refs <= 0 {
++		p.refs = 0
++		p.shelves = p.shelves[:0]
++		p.nextY = 0
++	}
++}
++
++// newAtlasTexture returns a texture living in an atlas page, or nil.
++func (r *Renderer_GLES32) newAtlasTexture(width, height, depth int32, filter bool) *Texture_GLES32 {
++	s := nxAtlasFor(width, height, depth, filter)
++	if s == nil {
++		return nil
++	}
++	page, x, y := s.alloc(width, height)
++	t := &Texture_GLES32{
++		width:  width,
++		height: height,
++		depth:  depth,
++		filter: filter,
++		handle: page.handle,
++		serial: page.serial,
++		page:   page,
++		ax:     x,
++		ay:     y,
++	}
++	runtime.SetFinalizer(t, func(t *Texture_GLES32) {
++		sys.mainThreadTask <- func() {
++			t.page.release()
++		}
++	})
++	return t
++}
++
++// uploadAtlas writes the texture's pixels (with a cleared border) into its
++// page, binding the page on the reserved upload unit.
++func (t *Texture_GLES32) uploadAtlas(data []byte) {
++	s := t.page.set
++	bpp := int(s.depth / 8)
++	_, format := s.format()
++	pad := s.pad
++	w, h := t.width+2*pad, t.height+2*pad
++	buf := data
++	if pad > 0 {
++		buf = make([]byte, int(w)*int(h)*bpp)
++		if data != nil {
++			row := int(t.width) * bpp
++			for yy := 0; yy < int(t.height) && (yy+1)*row <= len(data); yy++ {
++				copy(buf[((yy+int(pad))*int(w)+int(pad))*bpp:], data[yy*row:(yy+1)*row])
++			}
++		}
++	} else if buf == nil {
++		buf = make([]byte, int(w)*int(h)*bpp)
++	}
++	r := gfx.(*Renderer_GLES32)
++	gl.ActiveTexture(gl.TEXTURE0 + uint32(r.uploadUnit))
++	gl.BindTexture(gl.TEXTURE_2D, t.handle)
++	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
++	gl.PixelStorei(gl.UNPACK_ROW_LENGTH, 0)
++	gl.TexSubImage2D(gl.TEXTURE_2D, 0, t.ax-pad, t.ay-pad, w, h, format, gl.UNSIGNED_BYTE, unsafe.Pointer(&buf[0]))
++}
++
++// texRect is the sprite's area in its texture as (u0, v0, du, dv).
++func (t *Texture_GLES32) texRect() (float32, float32, float32, float32) {
++	if t.page == nil {
++		return 0, 0, 1, 1
++	}
++	s := t.page.set
++	return float32(t.ax) / float32(s.w), float32(t.ay) / float32(s.h),
++		float32(t.width) / float32(s.w), float32(t.height) / float32(s.h)
++}
++
++// palV is the v coordinate of the palette row to sample.
++func (t *Texture_GLES32) palV() float32 {
++	if t.page == nil {
++		return 0.5
++	}
++	return (float32(t.ay) + 0.5) / float32(t.page.set.h)
++}
+diff --git a/src/shaders/sprite.frag.glsl b/src/shaders/sprite.frag.glsl
+index d07e26f..39ffbbc 100644
+--- a/src/shaders/sprite.frag.glsl
++++ b/src/shaders/sprite.frag.glsl
+@@ -36,6 +36,11 @@
+ 	uniform int mask;
+ 	uniform bool isFlat, isRgba, isTrapez, neg;
+ 	COMPAT_VARYING vec2 texcoord;
++	#ifdef GL_ES
++		// Sprite area and palette row inside atlas pages (Ikemen NX).
++		uniform vec4 texRect;
++		uniform float palV;
++	#endif
+ #endif
+ 
+ vec3 rgb2hsv(vec3 c)
+@@ -87,7 +92,11 @@ void main(void) {
+ 			uv.x = (gl_FragCoord.x - bounds[0]) / gap;
+ 		}
+ 
+-		c = COMPAT_TEXTURE(tex, uv);
++		#ifdef GL_ES
++			c = COMPAT_TEXTURE(tex, texRect.xy + uv * texRect.zw);
++		#else
++			c = COMPAT_TEXTURE(tex, uv);
++		#endif
+ 
+ 		// Select with or without palette
+ 		if (isRgba) {
+@@ -100,7 +109,11 @@ void main(void) {
+ 			#if __VERSION__ >= 450
+ 				c = COMPAT_TEXTURE(pal, vec2(palUV[0]+palUV[2]*c.r*0.9966, palUV[1]));
+ 			#else
+-				c = COMPAT_TEXTURE(pal, vec2(c.r*0.9966, 0.5));
++				#ifdef GL_ES
++					c = COMPAT_TEXTURE(pal, vec2(c.r*0.9966, palV));
++				#else
++					c = COMPAT_TEXTURE(pal, vec2(c.r*0.9966, 0.5));
++				#endif
+ 			#endif
+ 			if (mask == -1) c.a = 1.0;
+ 		}
+-- 
+2.55.0.windows.5
+

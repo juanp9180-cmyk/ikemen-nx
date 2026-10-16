@@ -1,0 +1,117 @@
+From 4180c717615132bb36a939e4240b66f43401ee97 Mon Sep 17 00:00:00 2001
+From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 09:39:27 -0300
+Subject: [PATCH 06/10] nx: defer GPU upload of paletted/small sprite textures
+ until first draw
+
+---
+ src/render_gles32.go | 50 ++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 48 insertions(+), 2 deletions(-)
+
+diff --git a/src/render_gles32.go b/src/render_gles32.go
+index 2c68b81..c904aff 100644
+--- a/src/render_gles32.go
++++ b/src/render_gles32.go
+@@ -224,6 +224,31 @@ type Texture_GLES32 struct {
+ 	filter bool
+ 	handle uint32 // GL side handle
+ 	serial uint64 // Go side serial number
++	// pending holds pixel data not uploaded yet (Switch only, see SetData).
++	pending []byte
++}
++
++// nxUploads counts deferred texture uploads (Switch diagnostics).
++var nxUploads int
++
++// flushPending uploads deferred pixel data. It binds the texture on unit 0,
++// so the sprite texture cache entry for that unit is updated to match.
++func (t *Texture_GLES32) flushPending() {
++	if t.pending == nil {
++		return
++	}
++	data := t.pending
++	t.pending = nil
++	t.upload(data)
++	r := gfx.(*Renderer_GLES32)
++	if len(r.texCacheTexSerial) > 0 {
++		r.texCacheTexSerial[0] = t.serial
++		r.texCacheLastUsed[0] = r.texCacheTimer
++	}
++	nxUploads++
++	if nxUploads%1000 == 0 {
++		Logcat(fmt.Sprintf("GLES: %d textures uploaded on demand", nxUploads))
++	}
+ }
+ 
+ // Helper that wraps the actual GL call to generate a texture
+@@ -319,8 +344,25 @@ func (r *Renderer_GLES32) newCubeMapTexture(widthHeight int32, mipmap bool, lowe
+ 	return t
+ }
+ 
+-// Bind a texture and upload texel data to it
++// Bind a texture and upload texel data to it.
++//
++// On the Switch the upload is deferred until the texture is first drawn:
++// characters load thousands of sprites, most never shown in a match, and
++// every GPU texture is a separate nvmap allocation with a minimum size, so
++// uploading them all exhausts GPU memory (GL_OUT_OF_MEMORY).
+ func (t *Texture_GLES32) SetData(data []byte) {
++	// Large true-color images (stage backgrounds, HD screenpack art) are
++	// few and heavy, so they still go to the GPU right away to keep the Go
++	// heap small; the thousands of paletted or small sprites wait.
++	if isNX && data != nil && (t.depth <= 8 || int(t.width)*int(t.height) <= 128*128) {
++		t.pending = data
++		return
++	}
++	t.pending = nil
++	t.upload(data)
++}
++
++func (t *Texture_GLES32) upload(data []byte) {
+ 	var interp int32 = gl.NEAREST
+ 	if t.filter {
+ 		interp = gl.LINEAR
+@@ -351,6 +393,7 @@ func (t *Texture_GLES32) SetData(data []byte) {
+ }
+ 
+ func (t *Texture_GLES32) SetSubData(data []byte, x, y, width, height, stride int32) {
++	t.flushPending()
+ 	var interp int32 = gl.NEAREST
+ 	if t.filter {
+ 		interp = gl.LINEAR
+@@ -403,6 +446,7 @@ func (t *Texture_GLES32) SetSubData(data []byte, x, y, width, height, stride int
+ }
+ 
+ func (t *Texture_GLES32) SetDataG(data []byte, mag, min, ws, wt TextureSamplingParam) {
++	t.pending = nil
+ 	bits := Max(t.depth, 8)
+ 	internalFormat := t.MapSizedInternalFormat(bits)
+ 	uploadFormat := t.MapUploadFormat(bits)
+@@ -438,6 +482,7 @@ func (t Texture_GLES32) CopyData(src *Texture) {
+ 
+ 	gl.BindTexture(gl.TEXTURE_2D, 0) // Unbind whatever is currently bound
+ 	srcES := (*src).(*Texture_GLES32)
++	srcES.flushPending()
+ 	var fbo uint32
+ 	gl.GenFramebuffers(1, &fbo)
+ 	gl.BindFramebuffer(gl.READ_FRAMEBUFFER, fbo)
+@@ -1089,7 +1134,7 @@ func (r *Renderer_GLES32) EndFrame() {
+ 	if isNX && nxGLErrors < 40 {
+ 		if e := gl.GetError(); e != 0 {
+ 			nxGLErrors++
+-			Logcat(fmt.Sprintf("GL ERROR during frame: %#x (scrrect=%v)", e, sys.scrrect))
++			Logcat(fmt.Sprintf("GL ERROR during frame: %#x (scrrect=%v, textures uploaded=%d)", e, sys.scrrect, nxUploads))
+ 		}
+ 	}
+ 
+@@ -2009,6 +2054,7 @@ func (r *Renderer_GLES32) SetActiveTexture0() {
+ 
+ func (r *Renderer_GLES32) SetTextureSub(uMap map[string]int32, tMap map[string]int, name string, tex Texture) {
+ 	t := tex.(*Texture_GLES32)
++	t.flushPending()
+ 	loc := uMap[name]
+ 
+ 	// Cached path for the sprite shader
+-- 
+2.55.0.windows.5
+
