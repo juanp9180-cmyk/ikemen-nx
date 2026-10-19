@@ -187,6 +187,33 @@ int main(int argc, char **argv) {
 		tf_free(&in->mot);
 	}
 	test_import();
+	// New game from the romfs base (the engine .nro comes from an install).
+	romfsInit();
+	ninst = 0;
+	scan_installs();
+	status[0] = 0;
+	create_game("Juego Prueba");
+	tlogf("create: %s\n", status);
+	char nro[300];
+	snprintf(nro, sizeof nro, "%s/Juego Prueba/Juego Prueba.nro", scan_root);
+	FILE *nf = fopen(nro, "rb");
+	if (nf) {
+		u32 sz;
+		fseek(nf, 0x18, SEEK_SET);
+		if (fread(&sz, 4, 1, nf) == 1) {
+			u8 aset[0x38];
+			fseek(nf, sz, SEEK_SET);
+			if (fread(aset, sizeof aset, 1, nf) == 1) {
+				u64 off;
+				memcpy(&off, aset + 0x18, 8);
+				char title[64] = "";
+				fseek(nf, sz + off, SEEK_SET);
+				if (fread(title, sizeof title - 1, 1, nf) == 1) tlogf("nacp title: '%s'\n", title);
+			}
+		}
+		fclose(nf);
+	}
+	romfsExit();
 	tlogf("done\n");
 	fclose(tlog);
 	return 0;

@@ -76,4 +76,11 @@ if [ ! -f deps/libxmp/libxmp.a ]; then
 	bash libxmp/build.sh "$LIBXMP_VERSION"
 fi
 
+RELZIP=deps/Ikemen_GO-$IKEMEN_TAG-linux.zip
+if [ ! -f "$RELZIP" ]; then
+	step "Ikemen GO $IKEMEN_TAG release data (screenpack, fonts, scripts)"
+	curl -sSL -o "$RELZIP" \
+		https://github.com/ikemen-engine/Ikemen-GO/releases/download/$IKEMEN_TAG/Ikemen_GO-$IKEMEN_TAG-linux.zip
+fi
+
 step "listo: ahora ejecuta ./build.sh"

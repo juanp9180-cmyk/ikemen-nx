@@ -421,7 +421,7 @@ static int fix_motif(TextFile *f) {
 }
 
 static const char *game_config =
-	"; Ikemen NX: juego importado por Ikemen NX Config.\n"
+	"; Ikemen NX: juego creado o importado por Ikemen NX Config.\n"
 	"[Config]\n"
 	"Motif = %s\n"
 	"BootLoadingMode = 0\n"
@@ -508,6 +508,89 @@ static void register_items(Install *in, int *nc, int *ns, char *last_motif, char
 		}
 	}
 	if (in->sel.dirty) tf_save(&in->sel);
+}
+
+// ---------------------------------------------------------------------------
+// New game from scratch: the clean Ikemen GO base bundled in this app's
+// romfs (engine data, default "ikemen1" screenpack, Kung Fu Man) plus the
+// .nro of an existing install, renamed for the homebrew menu.
+
+// Writes `title` as the app name of every language in an .nro's NACP.
+static bool nro_set_title(const char *path, const char *title) {
+	FILE *f = fopen(path, "r+b");
+	if (!f) return false;
+	u32 nro_size = 0;
+	u8 aset[0x38];
+	bool ok = fseek(f, 0x18, SEEK_SET) == 0 && fread(&nro_size, 4, 1, f) == 1 &&
+		fseek(f, nro_size, SEEK_SET) == 0 && fread(aset, sizeof aset, 1, f) == 1 && !memcmp(aset, "ASET", 4);
+	if (ok) {
+		u64 nacp_off, nacp_size;
+		memcpy(&nacp_off, aset + 0x18, 8);
+		memcpy(&nacp_size, aset + 0x20, 8);
+		ok = nacp_size >= 0x3000;
+		char name[0x200] = {0};
+		snprintf(name, sizeof name, "%s", title);
+		for (int lang = 0; ok && lang < 16; lang++) {
+			ok = fseek(f, nro_size + nacp_off + lang * 0x300, SEEK_SET) == 0 && fwrite(name, sizeof name, 1, f) == 1;
+		}
+	}
+	fclose(f);
+	return ok;
+}
+
+// .nro of an install, preferring a plain ikemen.nro.
+static bool find_engine_nro(char *out, size_t n) {
+	for (int pass = 0; pass < 2; pass++) {
+		for (int i = 0; i < ninst; i++) {
+			DIR *d = opendir(inst[i].dir);
+			struct dirent *e;
+			bool found = false;
+			while (d && (e = readdir(d)) && !found) {
+				if (!has_ext(e->d_name, ".nro")) continue;
+				if (pass == 0 && strcasecmp(e->d_name, "ikemen.nro")) continue;
+				snprintf(out, n, "%s/%s", inst[i].dir, e->d_name);
+				found = true;
+			}
+			if (d) closedir(d);
+			if (found) return true;
+		}
+	}
+	return false;
+}
+
+static void create_game(const char *name);
+
+static void create_game_page(void) {
+	char name[128] = "Mi juego";
+	if (kbd_input("Nombre del juego nuevo", name, name, sizeof name) && *name) create_game(name);
+}
+
+// Creates sdmc:/switch/<name>; the result goes to the status line.
+static void create_game(const char *name) {
+	char folder[128];
+	snprintf(folder, sizeof folder, "%s", name);
+	for (char *p = folder; *p; p++) if (strchr("\\/:*?\"<>|", *p)) *p = '_';
+	char gamedir[400], nro[600], dst[700];
+	snprintf(gamedir, sizeof gamedir, "%s/%s", scan_root, folder);
+	if (file_exists(gamedir)) { set_status("Ya existe %s: elige otro nombre.", gamedir + 5); return; }
+	if (!find_engine_nro(nro, sizeof nro)) {
+		set_status("No encontre el motor (.nro) en ninguna instalacion. Instala el paquete de Ikemen NX.");
+		return;
+	}
+	if (!file_exists("romfs:/base/data/ikemen1/system.def")) { set_status("Falta la base de Ikemen dentro de la app."); return; }
+	show_busy("Crear juego nuevo", "Copiando la base de Ikemen GO (screenpack por defecto, Kung Fu Man)...");
+	mkdir_p(gamedir);
+	int copied = copy_missing("romfs:/base", gamedir, true);
+	snprintf(dst, sizeof dst, "%s/%s.nro", gamedir, folder);
+	bool ok = copy_file(nro, dst) && nro_set_title(dst, name);
+	char cfg[500];
+	snprintf(cfg, sizeof cfg, "%s/save", gamedir);
+	mkdir_p(cfg);
+	snprintf(cfg, sizeof cfg, "%s/save/config.ini", gamedir);
+	FILE *fp = fopen(cfg, "w");
+	if (fp) { fprintf(fp, game_config, "data/ikemen1/system.def"); fclose(fp); }
+	if (!ok || !fp) set_status("ERROR creando %s (%d archivos copiados).", gamedir + 5, copied);
+	else set_status("Listo: '%s' en %s. Importa contenido y aparece en el menu homebrew.", name, gamedir + 5);
 }
 
 // ---------------------------------------------------------------------------

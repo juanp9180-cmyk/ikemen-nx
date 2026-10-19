@@ -61,6 +61,10 @@ La descarga se activa cuando el navegador va a una dirección que empieza con es
 
 ## Ikemen NX Config
 
+### Crear juego nuevo
+
+Crea `switch/<nombre>/` con una base limpia de Ikemen GO v1.0.0, incluida dentro de la app: el screenpack por defecto, sus lifebars y fuentes, Kung Fu Man y un escenario. El motor (`.nro`) se copia de otra instalación y el menú de homebrew lo muestra con el nombre que elijas. Después lo llenas con **Importar** (personajes, escenarios, screenpack y lifebars descargados) y lo ajustas con las demás opciones.
+
 ### Importar
 
 La primera opción, **Importar descargas**, lista los `.zip`, `.rar` y `.7z` de `sdmc:/ikemen-import/`. Al elegir uno, la app revisa qué contiene, sin extraerlo:

@@ -859,6 +859,7 @@ int main(int argc, char **argv) {
 	consoleInit(NULL);
 	padConfigureInput(1, HidNpadStyleSet_NpadStandard);
 	padInitializeDefault(&pad);
+	romfsInit(); // the Ikemen GO base for "Crear juego nuevo"
 	int cur = 0;
 	bool rescan = true;
 	while (appletMainLoop()) {
@@ -875,21 +876,24 @@ int main(int argc, char **argv) {
 				}
 			}
 		}
-		int rows = ninst + 1;
+		const int FIRST = 2; // rows before the installs: Importar, Crear
+		int rows = ninst + FIRST;
 		if (cur >= rows) cur = rows - 1;
 		header(NULL);
 		draw_row(4, cur == 0, "Importar descargas (zip, rar, 7z)", IMPORT_DIR + 5);
-		printf("\x1b[6;2H\x1b[37mJuegos para configurar:\x1b[0m");
+		draw_row(5, cur == 1, "Crear juego nuevo", "base de Ikemen GO");
+		printf("\x1b[7;2H\x1b[37mJuegos para configurar:\x1b[0m");
 		for (int i = 0; i < ninst; i++) {
 			char label[200];
 			snprintf(label, sizeof label, "%s", inst[i].title[0] ? inst[i].title : inst[i].folder);
 			char val[160];
 			snprintf(val, sizeof val, "switch/%s", inst[i].folder);
-			draw_row(8 + i, cur == i + 1, label, val);
+			draw_row(9 + i, cur == i + FIRST, label, val);
 		}
-		if (!ninst) printf("\x1b[8;2HNo se encontraron instalaciones de Ikemen en sdmc:/switch/.");
+		if (!ninst) printf("\x1b[9;2HNo se encontraron instalaciones de Ikemen en sdmc:/switch/.");
 		footer("Arriba/Abajo: elegir   A: entrar   +: salir",
 			cur == 0 ? "Instala personajes, escenarios, screenpacks, lifebars y juegos descargados." :
+			cur == 1 ? "Crea switch/<nombre>/ con el screenpack por defecto y Kung Fu Man, listo para importar." :
 			"Edita config.ini, select.def y system.def. Al guardar deja copias .bak.");
 		consoleUpdate(NULL);
 		u64 k = input();
@@ -898,9 +902,11 @@ int main(int argc, char **argv) {
 		if (DOWN(k)) cur = (cur + 1) % rows;
 		if (kdown & HidNpadButton_A) {
 			if (cur == 0) { import_page(); rescan = true; }
-			else install_menu(&inst[cur - 1]);
+			else if (cur == 1) { create_game_page(); rescan = true; }
+			else install_menu(&inst[cur - FIRST]);
 		}
 	}
+	romfsExit();
 	consoleExit(NULL);
 	return 0;
 }

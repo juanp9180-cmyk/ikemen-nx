@@ -1,0 +1,15 @@
+; Juego nuevo creado por Ikemen NX Config.
+; Agrega personajes y escenarios con Importar, o en Roster / Escenarios.
+
+[Characters]
+kfm, stages/stage0.def
+randomselect
+
+[ExtraStages]
+stages/stage0.def
+
+[Options]
+arcade.maxmatches = 6,1,1,0,0,0,0,0,0,0
+team.maxmatches = 4,1,1,0,0,0,0,0,0,0
+timeattack.maxmatches = 6,1,1,0,0,0,0,0,0,0
+survival.maxmatches = -1,0,0,0,0,0,0,0,0,0

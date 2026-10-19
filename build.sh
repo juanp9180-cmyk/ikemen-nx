@@ -34,12 +34,14 @@ nacptool --create "Ikemen GO" "Ikemen NX (port by the community)" "$VER" out/ike
 elf2nro out/ikemen.elf out/ikemen.nro --icon=app/icon.jpg --nacp=out/ikemen.nacp
 
 echo "-- nxconfig.nro"
+nxconfig/base_romfs.sh "deps/Ikemen_GO-v1.0.0-linux.zip" >/dev/null
 aarch64-none-elf-gcc $NX_ARCH -O2 -Wall -Wno-format-truncation -D__SWITCH__ $NX_INC \
 	-c nxconfig/main.c -o out/nxconfig.o
 aarch64-none-elf-gcc $NX_ARCH -specs="$NX_SPECS" out/nxconfig.o $NX_LIBDIRS \
 	-larchive -lexpat -llzma -llz4 -lzstd -lbz2 -lz -lnx -o out/nxconfig.elf
 nacptool --create "Ikemen NX Config" "Ikemen NX" "$VER" out/nxconfig.nacp
-elf2nro out/nxconfig.elf out/nxconfig.nro --icon=nxconfig/icon.jpg --nacp=out/nxconfig.nacp
+elf2nro out/nxconfig.elf out/nxconfig.nro --icon=nxconfig/icon.jpg --nacp=out/nxconfig.nacp \
+	--romfsdir=out/nxconfig-romfs
 
 echo "-- nxbrowser.nro"
 aarch64-none-elf-gcc $NX_ARCH -O2 -Wall -Wno-format-truncation -D__SWITCH__ $NX_INC \
