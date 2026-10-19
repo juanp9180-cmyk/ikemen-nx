@@ -214,6 +214,28 @@ int main(int argc, char **argv) {
 		fclose(nf);
 	}
 	romfsExit();
+
+	// Updater: version compare, manifest parsing, and replacing an engine
+	// .nro's code while keeping its icon/name (kofa.nro <- ikemen.nro).
+	tlogf("cmp 0.3.10>0.3.9: %d, 1.2=1.2.0: %d, 0.3.0<0.3.1: %d\n",
+		nxu_cmp("0.3.10", "0.3.9"), nxu_cmp("1.2", "1.2.0"), nxu_cmp("0.3.0", "0.3.1"));
+	const char *man = "; test\n[ikemen]\nversion = 0.3.1\nurl = https://x/ikemen.nro\nnotes = hola\n[nxconfig]\nversion=1.3.0\nurl=https://x/c.nro\n";
+	NxuInfo inf;
+	tlogf("lookup ikemen: %d %s %s '%s'\n", nxu_lookup(man, "ikemen", &inf), inf.version, inf.url, inf.notes);
+	tlogf("lookup nxconfig: %d %s\n", nxu_lookup(man, "nxconfig", &inf), inf.version);
+	tlogf("lookup missing: %d\n", nxu_lookup(man, "nxbrowser", &inf));
+	char v1[32], v2[32];
+	nxu_nro_version("sdmc:/nxtest/upd/kofa.nro", v1, sizeof v1);
+	nxu_nro_version("sdmc:/nxtest/upd/new.nro", v2, sizeof v2);
+	tlogf("versions: kofa=%s new=%s valid=%d/%d\n", v1, v2, nxu_nro_valid("sdmc:/nxtest/upd/kofa.nro"), nxu_nro_valid("sdmc:/nxtest/upd/new.nro"));
+	bool inst_ok = nxu_install_nro("sdmc:/nxtest/upd/new.nro", "sdmc:/nxtest/upd/kofa.nro", true, "0.3.1");
+	nxu_nro_version("sdmc:/nxtest/upd/kofa.nro", v1, sizeof v1);
+	tlogf("install keep_assets: %d, kofa now version=%s valid=%d\n", inst_ok, v1, nxu_nro_valid("sdmc:/nxtest/upd/kofa.nro"));
+	char manifest[2048];
+	curl_global_init(CURL_GLOBAL_DEFAULT);
+	socketInitializeDefault();
+	tlogf("fetch manifest (network): %d\n", nxu_fetch_manifest(manifest, sizeof manifest));
+	socketExit();
 	tlogf("done\n");
 	fclose(tlog);
 	return 0;

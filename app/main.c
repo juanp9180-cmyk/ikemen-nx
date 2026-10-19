@@ -5,8 +5,9 @@
 #include <switch.h>
 #include <SDL2/SDL.h>
 #include "libikemen.h"
+#include "nxupdate.h"
 
-#define IKEMEN_NX_VERSION_STR "Ikemen NX v0.3.0"
+#define IKEMEN_NX_VERSION_STR "Ikemen NX v0.3.1"
 
 static char log_path[FS_MAX_PATH + 32] = "sdmc:/switch/ikemen/go_stdout.log";
 
@@ -87,8 +88,69 @@ static bool warn_applet_mode(void) {
 	return go;
 }
 
+static void update_progress(double now, double total) {
+	if (total > 0) printf("\x1b[14;4H%.1f de %.1f MB   ", now / 1048576.0, total / 1048576.0);
+	else printf("\x1b[14;4H%.1f MB   ", now / 1048576.0);
+	consoleUpdate(NULL);
+}
+
+// Looks for a newer engine (once a day, see nxupdate.h) and offers to
+// update this .nro, keeping its icon and name. Returns true if the .nro
+// was replaced: the game must be started again.
+static bool check_update(const char *self) {
+	if (!nxu_config_get("auto", 1)) return false;
+	long last = nxu_config_get("last_check", 0);
+	if (last && time(NULL) - last < 24 * 3600 && time(NULL) >= last) return false;
+	if (R_FAILED(socketInitializeDefault())) return false;
+	curl_global_init(CURL_GLOBAL_DEFAULT);
+	static char manifest[16 * 1024];
+	NxuInfo info;
+	char cur[32];
+	bool replaced = false, fetched = nxu_fetch_manifest(manifest, sizeof manifest);
+	if (fetched) nxu_config_set_checked(1);
+	if (fetched && nxu_lookup(manifest, "ikemen", &info) && nxu_nro_version(self, cur, sizeof cur) &&
+		nxu_cmp(info.version, cur) > 0) {
+		consoleInit(NULL);
+		padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+		PadState pad;
+		padInitializeDefault(&pad);
+		printf("%s\n\nHay una version nueva del motor: %s (tienes %s).\n", IKEMEN_NX_VERSION_STR, info.version, cur);
+		if (info.notes[0]) printf("%s\n", info.notes);
+		printf("\nSe conservan el icono y el nombre de este juego.\n\n");
+		printf("A: actualizar ahora   B: ahora no   X: no volver a preguntar\n");
+		while (appletMainLoop()) {
+			consoleUpdate(NULL);
+			padUpdate(&pad);
+			u64 d = padGetButtonsDown(&pad);
+			if (d & HidNpadButton_B) break;
+			if (d & HidNpadButton_X) { nxu_config_set_checked(0); break; }
+			if (!(d & HidNpadButton_A)) continue;
+			char tmp[FS_MAX_PATH + 16];
+			snprintf(tmp, sizeof tmp, "%s.download", self);
+			printf("\x1b[12;1HDescargando...\n");
+			bool ok = nxu_download(info.url, tmp, update_progress) && nxu_install_nro(tmp, self, true, info.version);
+			remove(tmp);
+			printf(ok ? "\x1b[16;1HListo. Pulsa + y vuelve a abrir el juego.\n" :
+				"\x1b[16;1HNo se pudo actualizar (se mantiene la version actual). Pulsa +.\n");
+			while (appletMainLoop()) {
+				consoleUpdate(NULL);
+				padUpdate(&pad);
+				if (padGetButtonsDown(&pad) & HidNpadButton_Plus) break;
+			}
+			replaced = ok;
+			break;
+		}
+		consoleExit(NULL);
+	}
+	curl_global_cleanup();
+	socketExit();
+	return replaced;
+}
+
 int main(int argc, char **argv) {
 	if (!warn_applet_mode())
+		return 0;
+	if (argc > 0 && argv[0] && strchr(argv[0], '/') && check_update(argv[0]))
 		return 0;
 	// The engine data lives next to the .nro (hbloader passes its path in
 	// argv[0]); fall back to the usual folder.

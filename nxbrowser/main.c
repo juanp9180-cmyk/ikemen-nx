@@ -20,7 +20,9 @@
 #include <strings.h>
 #include <sys/stat.h>
 
-#define APP_TITLE "Ikemen NX Browser v1.0"
+#include "nxupdate.h"
+
+#define APP_TITLE "Ikemen NX Browser v1.1.0"
 #define IMPORT_DIR "sdmc:/ikemen-import"
 #define CONFIG_FILE IMPORT_DIR "/browser.ini"
 
@@ -354,6 +356,48 @@ static void browse_site(const char *start, const char *callback) {
 	}
 }
 
+static void upd_progress(double now, double total) {
+	if (total > 0) printf("\x1b[12;4H\x1b[37m%.1f de %.1f MB     \x1b[0m", now / 1048576.0, total / 1048576.0);
+	consoleUpdate(NULL);
+}
+
+// Offers a newer Ikemen NX Browser from GitHub (see common/nxupdate.h).
+// Returns true if this .nro was replaced: the app must be opened again.
+static bool check_update(const char *self) {
+	if (!nxu_config_get("auto", 1)) return false;
+	static char manifest[16 * 1024];
+	NxuInfo info;
+	char cur[32];
+	if (!nxu_fetch_manifest(manifest, sizeof manifest) || !nxu_lookup(manifest, "nxbrowser", &info) ||
+		!nxu_nro_version(self, cur, sizeof cur) || nxu_cmp(info.version, cur) <= 0) return false;
+	while (appletMainLoop()) {
+		header("Actualizacion");
+		printf("\x1b[5;4H\x1b[37mHay una version nueva: %s (tienes %s).\x1b[0m", info.version, cur);
+		if (info.notes[0]) printf("\x1b[7;4H%.74s", info.notes);
+		footer("A: actualizar   B: ahora no   X: no buscar al abrir", NULL);
+		consoleUpdate(NULL);
+		u64 k = buttons_down();
+		if (k & HidNpadButton_B) return false;
+		if (k & HidNpadButton_X) { nxu_config_set_checked(0); return false; }
+		if (!(k & HidNpadButton_A)) continue;
+		char tmp[700];
+		snprintf(tmp, sizeof tmp, "%s.download", self);
+		printf("\x1b[10;4H\x1b[33;1mDescargando...\x1b[0m");
+		bool ok = nxu_download(info.url, tmp, upd_progress) && nxu_install_nro(tmp, self, false, info.version);
+		remove(tmp);
+		if (!ok) { set_status("No se pudo actualizar; sigues con la version actual."); return false; }
+		header("Actualizacion");
+		printf("\x1b[5;4H\x1b[37mListo. Vuelve a abrir Ikemen NX Browser desde el menu homebrew.\x1b[0m");
+		footer("+: salir", NULL);
+		while (appletMainLoop()) {
+			consoleUpdate(NULL);
+			if (buttons_down() & HidNpadButton_Plus) break;
+		}
+		return true;
+	}
+	return false;
+}
+
 int main(int argc, char **argv) {
 	consoleInit(NULL);
 	padConfigureInput(1, HidNpadStyleSet_NpadStandard);
@@ -363,6 +407,12 @@ int main(int argc, char **argv) {
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 	mkdir(IMPORT_DIR, 0777);
 	load_sites();
+	if (argc > 0 && argv[0] && strchr(argv[0], '/') && check_update(argv[0])) {
+		curl_global_cleanup();
+		socketExit();
+		consoleExit(NULL);
+		return 0;
+	}
 
 	AppletType at = appletGetAppletType();
 	bool applet_mode = at != AppletType_Application && at != AppletType_SystemApplication;

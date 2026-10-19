@@ -110,6 +110,16 @@ Elige una instalación y cambia:
 
 Lo que se quita no se borra del archivo: queda comentado (`;nxoff:` / `;nxhide:`) y se puede reactivar. La primera vez que guarda un archivo deja una copia `.bak` del original.
 
+## Actualizaciones
+
+Los programas se actualizan solos desde este repositorio: leen `versions.ini` y, si hay una versión nueva, la ofrecen con un botón.
+
+- **Cada juego (el motor):** revisa al arrancar, como máximo una vez al día. Al actualizarse conserva su icono y su nombre (por ejemplo, un juego creado con "Crear juego nuevo").
+- **Ikemen NX Config:** revisa al abrirse y actualiza de una vez la app, Ikemen NX Browser y el motor de todos tus juegos. También tiene **Buscar actualizaciones** en el menú.
+- **Ikemen NX Browser:** revisa al abrirse.
+
+Hace falta internet; sin conexión siguen de largo. Para desactivar la revisión automática, elige **X** en el aviso, o escribe `auto = 0` en `sdmc:/config/ikemen-nx/update.ini`. Antes de reemplazar un `.nro`, el actualizador verifica que la descarga sea válida.
+
 ## Problemas
 
 - El registro queda en `switch/ikemen/go_stdout.log`. Si el juego termina con un error, el `.nro` muestra las últimas líneas en pantalla.

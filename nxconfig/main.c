@@ -12,7 +12,9 @@
 #include <strings.h>
 #include <sys/stat.h>
 
-#define APP_TITLE "Ikemen NX Config v1.2"
+#include "nxupdate.h"
+
+#define APP_TITLE "Ikemen NX Config v1.3.0"
 #define MAX_INSTALLS 16
 #define ORDERS 10       // arcade.maxmatches values written (orders 1..10)
 #define BOSS_ORDER 10   // bosses that can appear in arcade
@@ -797,6 +799,7 @@ static void slots_page(Install *in) {
 
 #include "pages.h"
 #include "import.h"
+#include "update_page.h"
 
 static void install_menu(Install *in) {
 	if (!load_install(in)) {
@@ -860,9 +863,12 @@ int main(int argc, char **argv) {
 	padConfigureInput(1, HidNpadStyleSet_NpadStandard);
 	padInitializeDefault(&pad);
 	romfsInit(); // the Ikemen GO base for "Crear juego nuevo"
+	socketInitializeDefault();
+	curl_global_init(CURL_GLOBAL_DEFAULT);
+	const char *self = argc > 0 && argv[0] && strchr(argv[0], '/') ? argv[0] : "sdmc:/switch/nxconfig/nxconfig.nro";
 	int cur = 0;
-	bool rescan = true;
-	while (appletMainLoop()) {
+	bool rescan = true, checked = false, quit = false;
+	while (!quit && appletMainLoop()) {
 		if (rescan) {
 			// Installs and their titles (an import can add a new game).
 			rescan = false;
@@ -876,24 +882,30 @@ int main(int argc, char **argv) {
 				}
 			}
 		}
-		const int FIRST = 2; // rows before the installs: Importar, Crear
+		if (!checked) {
+			checked = true;
+			if (updates_page(self, true)) break;
+		}
+		const int FIRST = 3; // rows before the installs: Importar, Crear, Actualizar
 		int rows = ninst + FIRST;
 		if (cur >= rows) cur = rows - 1;
 		header(NULL);
 		draw_row(4, cur == 0, "Importar descargas (zip, rar, 7z)", IMPORT_DIR + 5);
 		draw_row(5, cur == 1, "Crear juego nuevo", "base de Ikemen GO");
-		printf("\x1b[7;2H\x1b[37mJuegos para configurar:\x1b[0m");
+		draw_row(6, cur == 2, "Buscar actualizaciones", "GitHub");
+		printf("\x1b[8;2H\x1b[37mJuegos para configurar:\x1b[0m");
 		for (int i = 0; i < ninst; i++) {
 			char label[200];
 			snprintf(label, sizeof label, "%s", inst[i].title[0] ? inst[i].title : inst[i].folder);
 			char val[160];
 			snprintf(val, sizeof val, "switch/%s", inst[i].folder);
-			draw_row(9 + i, cur == i + FIRST, label, val);
+			draw_row(10 + i, cur == i + FIRST, label, val);
 		}
-		if (!ninst) printf("\x1b[9;2HNo se encontraron instalaciones de Ikemen en sdmc:/switch/.");
+		if (!ninst) printf("\x1b[10;2HNo se encontraron instalaciones de Ikemen en sdmc:/switch/.");
 		footer("Arriba/Abajo: elegir   A: entrar   +: salir",
 			cur == 0 ? "Instala personajes, escenarios, screenpacks, lifebars y juegos descargados." :
 			cur == 1 ? "Crea switch/<nombre>/ con el screenpack por defecto y Kung Fu Man, listo para importar." :
+			cur == 2 ? "Esta app, Ikemen NX Browser y el motor de cada juego (conservan icono y nombre)." :
 			"Edita config.ini, select.def y system.def. Al guardar deja copias .bak.");
 		consoleUpdate(NULL);
 		u64 k = input();
@@ -903,9 +915,12 @@ int main(int argc, char **argv) {
 		if (kdown & HidNpadButton_A) {
 			if (cur == 0) { import_page(); rescan = true; }
 			else if (cur == 1) { create_game_page(); rescan = true; }
+			else if (cur == 2) quit = updates_page(self, false);
 			else install_menu(&inst[cur - FIRST]);
 		}
 	}
+	curl_global_cleanup();
+	socketExit();
 	romfsExit();
 	consoleExit(NULL);
 	return 0;

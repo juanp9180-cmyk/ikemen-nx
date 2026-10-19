@@ -71,7 +71,7 @@ Si prefieres la web: en tu repositorio, entra a *Releases → Draft a new releas
 
 ## 6. Versiones siguientes
 
-1. Cambia la versión en `app/main.c` (`IKEMEN_NX_VERSION_STR`).
+1. Cambia la versión de lo que cambió: el motor en `app/main.c` (`IKEMEN_NX_VERSION_STR`), Ikemen NX Config y Ikemen NX Browser en el `APP_TITLE` de su `main.c`.
 2. Si cambiaste Ikemen o Go en tu copia local, regenera los parches:
 
    ```bash
@@ -79,4 +79,5 @@ Si prefieres la web: en tu repositorio, entra a *Releases → Draft a new releas
    ```
 
    Haz lo mismo con `goroot`, partiendo de la etiqueta `go1.27.2`.
-3. Ejecuta `./build.sh`, `./package.sh`, haz commit, crea la etiqueta y la release como en el paso 4.
+3. Ejecuta `./build.sh` y `./package.sh`, haz commit, y crea la etiqueta y la release como en el paso 4. Sube a la release los tres `.nro` además del zip.
+4. **Al final**, actualiza `versions.ini` con las versiones nuevas y las URLs de los `.nro` de esa release, y súbelo (`git commit` + `git push`). Las apps y los juegos leen ese archivo para ofrecer la actualización: si lo subes antes que la release, ofrecerían una descarga que todavía no existe.
