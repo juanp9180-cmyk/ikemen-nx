@@ -11,7 +11,8 @@ Estado: corre en consola real (Atmosphère 1.12, firmware 23). Funcionan el men�
 1. Descarga `ikemen-nx-vX.Y.Z-sd.zip` desde la página de **Releases**.
 2. Descomprímelo en la raíz de la microSD. Quedan:
    - `switch/ikemen/`: el motor (`ikemen.nro`) con el screenpack, los personajes y los escenarios de ejemplo de Ikemen GO.
-   - `switch/nxconfig/`: **Ikemen NX Config**, una app para cambiar las opciones sin PC.
+   - `switch/nxconfig/`: **Ikemen NX Config**, para instalar contenido descargado y cambiar las opciones sin PC.
+   - `switch/nxbrowser/`: **Ikemen NX Browser**, para descargar contenido desde la Switch.
 3. **Si descomprimiste en Windows, quita el bit de archivo a las carpetas.** Horizon trata como archivo cualquier carpeta que tenga el atributo *Archivo* (el juego no arranca o no encuentra sus datos). Para quitarlo:
    - Desde Hekate: menú *Tools*, opción *Fix Archive Bit* (el nombre del submenú cambia según la versión).
    - Desde Windows, con la SD en `E:`:
@@ -46,9 +47,44 @@ Recomendaciones para la Switch:
   - `winquote.textwrap = l` no existe en Ikemen; usa `w`.
 - **Personajes de otro juego** dentro de un juego completo con `common1.cns` propio: pueden necesitar su propio `common1.cns.zss` y el mismo `localcoord` que los demás personajes.
 
+## Ikemen NX Browser
+
+Abre el navegador de la propia Switch (en modo título) en un sitio de descargas. Al tocar *Download*, el archivo se guarda en `sdmc:/ikemen-import/` y vuelves a la app. Trae configurado **AndersonKenya1**: el navegador del sistema pasa su control de Cloudflare, y los archivos se descargan desde su servidor de archivos (`media.invisioncic.com`).
+
+Para otros sitios, crea `sdmc:/ikemen-import/browser.ini` con una línea por sitio:
+
+```ini
+site = Nombre | https://pagina-de-inicio/ | https://prefijo-de-las-descargas/
+```
+
+La descarga se activa cuando el navegador va a una dirección que empieza con ese prefijo. Los archivos alojados en servicios externos (Mediafire, Google Drive, etc.) no funcionan así; descárgalos en el PC y cópialos a `sdmc:/ikemen-import/`.
+
 ## Ikemen NX Config
 
-Abre `switch/nxconfig`, elige una instalación y cambia:
+### Importar
+
+La primera opción, **Importar descargas**, lista los `.zip`, `.rar` y `.7z` de `sdmc:/ikemen-import/`. Al elegir uno, la app revisa qué contiene, sin extraerlo:
+
+| Detecta | Por | Instala en | Además |
+|---|---|---|---|
+| Personaje | `.def` con `[Files]` y `cmd` | `chars/<carpeta>/` | lo agrega al roster (primera casilla vacía) |
+| Escenario | `.def` con `[StageInfo]` | `stages/` | lo agrega a `[ExtraStages]`; su música va a `sound/` |
+| Música | archivos de audio sueltos | `sound/` | se elige por escenario en *Escenarios y música* |
+| Screenpack | `system.def` con `[Title Info]` | `data/<nombre>/` (y `font/`, `sound/`) | ofrece activarlo; nunca copia su `select.def` |
+| Lifebars | `fight.def` con `[Lifebar]` | `data/<nombre>/` | ofrece activarlas |
+| Juego completo | carpetas `data/` y `chars/` juntas | `switch/<nombre>/` (juego nuevo) | ver abajo |
+
+Puedes omitir cosas del paquete o cambiarles el nombre antes de instalar.
+
+**Juego completo:**
+1. Crea `switch/<nombre>/` con los archivos del juego (sin `.exe` ni `.dll`).
+2. Copia el motor (`.nro`, `external/` y los datos propios de Ikemen) desde otra instalación tuya.
+3. Escribe un `config.ini` con los valores recomendados para la Switch.
+4. Corrige en el `system.def` las diferencias conocidas con MUGEN: claves repetidas dentro de una sección, fundidos de WinMUGEN y `winquote.textwrap = l`. Cada cambio queda marcado con `;nxfix:`.
+
+### Configurar
+
+Elige una instalación y cambia:
 
 - **Arcade:** rivales por dificultad, jefes finales y qué jefes salen.
 - **Roster** (`select.def`):
@@ -65,6 +101,7 @@ Abre `switch/nxconfig`, elige una instalación y cambia:
   - filas y columnas de la grilla;
   - mostrar, ocultar o renombrar los ítems del menú principal.
 - **Grilla de selección:** para screenpacks que traen variantes en una carpeta `slots/`.
+- **Screenpack** y **Lifebars:** elegir entre los instalados en `data/`.
 - **Editor de archivos:** edita línea por línea `config.ini`, `select.def`, `system.def` y los demás `.def` del screenpack con el teclado de la Switch.
 
 Lo que se quita no se borra del archivo: queda comentado (`;nxoff:` / `;nxhide:`) y se puede reactivar. La primera vez que guarda un archivo deja una copia `.bak` del original.
@@ -83,7 +120,7 @@ Requisitos:
 - **devkitPro** con devkitA64, libnx y estos paquetes:
 
   ```bash
-  dkp-pacman -S switch-dev switch-sdl2 switch-ffmpeg switch-mesa switch-libdrm_nouveau switch-libass switch-harfbuzz switch-freetype switch-libfribidi switch-libpng switch-dav1d switch-bzip2 switch-zlib
+  dkp-pacman -S switch-dev switch-sdl2 switch-ffmpeg switch-mesa switch-libdrm_nouveau switch-libass switch-harfbuzz switch-freetype switch-libfribidi switch-libpng switch-dav1d switch-bzip2 switch-zlib switch-curl switch-libarchive switch-liblzma switch-lz4 switch-libzstd switch-libexpat
   ```
 
 - **Go 1.24 o superior** instalado. Solo se usa para compilar el toolchain parcheado.

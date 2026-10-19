@@ -22,6 +22,48 @@ static void show(Install *in, const Setting *s) {
 	tlogf("  %s = %s\n", s->key, v);
 }
 
+// Imports every zip in IMPORT_DIR into the first install (or as a new game).
+static void test_import(void) {
+	DIR *d = opendir(IMPORT_DIR);
+	struct dirent *e;
+	while (d && (e = readdir(d))) {
+		if (!has_ext(e->d_name, ".zip")) continue;
+		char p[600];
+		snprintf(p, sizeof p, IMPORT_DIR "/%s", e->d_name);
+		tlogf("== import %s\n", e->d_name);
+		if (!scan_archive(p)) { tlogf("  scan failed: %s\n", status); continue; }
+		tlogf("  entries=%d items=%d\n", nents, nitems);
+		for (int k = 0; k < nitems; k++) {
+			char rel[700];
+			def_dest(&items_[k], rel, sizeof rel);
+			tlogf("  [%s] name=%s root=%s def=%s files=%d -> %s\n", type_name[items_[k].type],
+				items_[k].name, items_[k].root, items_[k].def, items_[k].nfiles, rel);
+		}
+		if (!nitems) continue;
+		if (items_[0].type == IT_GAME) {
+			char gamedir[400], msg[300];
+			snprintf(gamedir, sizeof gamedir, "%s/%s", scan_root, items_[0].name);
+			mkdir_p(gamedir);
+			int w;
+			bool ok = extract(p, gamedir, &w);
+			finish_game(gamedir, items_[0].name, &inst[0], msg, sizeof msg);
+			tlogf("  game ok=%d written=%d: %s\n", ok, w, msg);
+			continue;
+		}
+		Install *in = &inst[0];
+		load_install(in);
+		int w, nc = 0, ns = 0;
+		char lm[400] = "", ll[400] = "";
+		bool ok = extract(p, in->dir, &w);
+		if (ok) register_items(in, &nc, &ns, lm, ll);
+		tlogf("  ok=%d written=%d chars=%d stages=%d motif=%s life=%s\n", ok, w, nc, ns, lm, ll);
+		tf_free(&in->cfg);
+		tf_free(&in->sel);
+		tf_free(&in->mot);
+	}
+	if (d) closedir(d);
+}
+
 int main(int argc, char **argv) {
 	tlog = fopen("sdmc:/nxtest/result.txt", "w");
 	if (!tlog) return 1;
@@ -144,6 +186,7 @@ int main(int argc, char **argv) {
 		tf_free(&in->sel);
 		tf_free(&in->mot);
 	}
+	test_import();
 	tlogf("done\n");
 	fclose(tlog);
 	return 0;

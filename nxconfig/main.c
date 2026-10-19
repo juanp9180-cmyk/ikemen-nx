@@ -12,7 +12,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 
-#define APP_TITLE "Ikemen NX Config v1.1"
+#define APP_TITLE "Ikemen NX Config v1.2"
 #define MAX_INSTALLS 16
 #define ORDERS 10       // arcade.maxmatches values written (orders 1..10)
 #define BOSS_ORDER 10   // bosses that can appear in arcade
@@ -796,6 +796,7 @@ static void slots_page(Install *in) {
 }
 
 #include "pages.h"
+#include "import.h"
 
 static void install_menu(Install *in) {
 	if (!load_install(in)) {
@@ -804,8 +805,8 @@ static void install_menu(Install *in) {
 	}
 	const char *items[] = { "Arcade (rivales y jefes)", "Roster (personajes)", "Escenarios y musica",
 		"Reglas de pelea", "Video y sonido", "Rendimiento", "Pantallas (system.def)",
-		"Grilla de seleccion (slots)", "Editor de archivos", "Guardar cambios", "Volver" };
-	const int count = 11, SAVE = 9;
+		"Grilla de seleccion (slots)", "Screenpack", "Lifebars", "Editor de archivos", "Guardar cambios", "Volver" };
+	const int count = 13, SAVE = 11;
 	int cur = 0;
 	status[0] = 0;
 	while (appletMainLoop()) {
@@ -834,9 +835,14 @@ static void install_menu(Install *in) {
 			case 5: settings_page(in, &in->cfg, "Rendimiento", perf, sizeof perf / sizeof *perf); break;
 			case 6: screens_page(in); break;
 			case 7: slots_page(in); break;
-			case 8: editor_menu(in); break;
-			case 9: set_status(save_all(in) ? "Guardado." : "ERROR al guardar"); break;
-			case 10: back = true; break;
+			case 8:
+			case 9:
+				if (dirty(in)) { set_status("Primero guarda (+) los cambios pendientes."); break; }
+				selector_page(in, cur == 9);
+				break;
+			case 10: editor_menu(in); break;
+			case 11: set_status(save_all(in) ? "Guardado." : "ERROR al guardar"); break;
+			case 12: back = true; break;
 			}
 		}
 		if (back && confirm_leave(in)) break;
@@ -853,39 +859,47 @@ int main(int argc, char **argv) {
 	consoleInit(NULL);
 	padConfigureInput(1, HidNpadStyleSet_NpadStandard);
 	padInitializeDefault(&pad);
-	scan_installs();
-	// Read each install's title for the list.
-	for (int i = 0; i < ninst; i++) {
-		if (load_install(&inst[i])) {
-			tf_free(&inst[i].cfg);
-			tf_free(&inst[i].sel);
-			tf_free(&inst[i].mot);
-		}
-	}
 	int cur = 0;
+	bool rescan = true;
 	while (appletMainLoop()) {
-		header(NULL);
-		if (!ninst) {
-			printf("\x1b[6;2HNo se encontraron instalaciones de Ikemen en sdmc:/switch/.");
-			printf("\x1b[7;2H(Se busca save/config.ini y external/script/main.lua en cada carpeta.)");
-		} else {
-			printf("\x1b[4;2H\x1b[37mElige el juego a configurar:\x1b[0m");
+		if (rescan) {
+			// Installs and their titles (an import can add a new game).
+			rescan = false;
+			ninst = 0;
+			scan_installs();
 			for (int i = 0; i < ninst; i++) {
-				char label[200];
-				snprintf(label, sizeof label, "%s", inst[i].title[0] ? inst[i].title : inst[i].folder);
-				char val[160];
-				snprintf(val, sizeof val, "switch/%s", inst[i].folder);
-				draw_row(6 + i, i == cur, label, val);
+				if (load_install(&inst[i])) {
+					tf_free(&inst[i].cfg);
+					tf_free(&inst[i].sel);
+					tf_free(&inst[i].mot);
+				}
 			}
 		}
-		footer("Arriba/Abajo: elegir   A: entrar   +: salir", "Edita config.ini y select.def. La primera vez que guarda deja copias .bak.");
+		int rows = ninst + 1;
+		if (cur >= rows) cur = rows - 1;
+		header(NULL);
+		draw_row(4, cur == 0, "Importar descargas (zip, rar, 7z)", IMPORT_DIR + 5);
+		printf("\x1b[6;2H\x1b[37mJuegos para configurar:\x1b[0m");
+		for (int i = 0; i < ninst; i++) {
+			char label[200];
+			snprintf(label, sizeof label, "%s", inst[i].title[0] ? inst[i].title : inst[i].folder);
+			char val[160];
+			snprintf(val, sizeof val, "switch/%s", inst[i].folder);
+			draw_row(8 + i, cur == i + 1, label, val);
+		}
+		if (!ninst) printf("\x1b[8;2HNo se encontraron instalaciones de Ikemen en sdmc:/switch/.");
+		footer("Arriba/Abajo: elegir   A: entrar   +: salir",
+			cur == 0 ? "Instala personajes, escenarios, screenpacks, lifebars y juegos descargados." :
+			"Edita config.ini, select.def y system.def. Al guardar deja copias .bak.");
 		consoleUpdate(NULL);
 		u64 k = input();
 		if (kdown & HidNpadButton_Plus) break;
-		if (!ninst) continue;
-		if (UP(k)) cur = (cur + ninst - 1) % ninst;
-		if (DOWN(k)) cur = (cur + 1) % ninst;
-		if (kdown & HidNpadButton_A) install_menu(&inst[cur]);
+		if (UP(k)) cur = (cur + rows - 1) % rows;
+		if (DOWN(k)) cur = (cur + 1) % rows;
+		if (kdown & HidNpadButton_A) {
+			if (cur == 0) { import_page(); rescan = true; }
+			else install_menu(&inst[cur - 1]);
+		}
 	}
 	consoleExit(NULL);
 	return 0;

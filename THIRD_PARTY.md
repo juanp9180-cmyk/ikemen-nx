@@ -14,6 +14,8 @@ The `.nro` files are linked statically with the projects below. `setup.sh` downl
 | Mesa, libdrm_nouveau | devkitPro `switch-mesa`, `switch-libdrm_nouveau` | MIT | https://github.com/devkitPro/mesa |
 | FFmpeg (avcodec, avformat, avfilter, swscale, swresample, avutil, **postproc**) | devkitPro `switch-ffmpeg` | LGPL-2.1+ / **GPL-2.0+ (postproc)** | https://ffmpeg.org |
 | libass, HarfBuzz, FreeType, FriBidi, libpng, dav1d, bzip2, zlib | devkitPro `switch-*` | ISC, MIT, FTL, LGPL-2.1, libpng, BSD-2, bzip2, zlib | devkitPro pacman-packages |
+| curl (Ikemen NX Browser) | devkitPro `switch-curl` | curl (MIT-style) | https://curl.se |
+| libarchive, liblzma, LZ4, Zstandard, Expat (Ikemen NX Config) | devkitPro `switch-*` | BSD-2, 0BSD, BSD-2, BSD-3, MIT | devkitPro pacman-packages |
 
 Because FFmpeg's `libpostproc` is GPL and the release binary links it statically, the distributed `.nro` as a whole is covered by the GPL. The complete corresponding source is this repository plus the sources listed above.
 

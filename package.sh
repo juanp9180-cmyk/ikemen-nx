@@ -3,6 +3,7 @@
 #   switch/ikemen/    ikemen.nro + Ikemen GO v1.0.0 data (default screenpack,
 #                     sample characters and stages) + Switch config.ini
 #   switch/nxconfig/  nxconfig.nro
+#   switch/nxbrowser/ nxbrowser.nro
 # Run ./build.sh first.
 set -eo pipefail
 cd "$(dirname "$0")"
@@ -10,7 +11,7 @@ ROOT=$PWD
 IKEMEN_TAG=v1.0.0
 ZIP=deps/Ikemen_GO-$IKEMEN_TAG-linux.zip
 VER=$(grep -o 'Ikemen NX v[0-9.]*' app/main.c | head -1 | sed 's/.*v//')
-[ -f out/ikemen.nro ] && [ -f out/nxconfig.nro ] || { echo "run ./build.sh first" >&2; exit 1; }
+[ -f out/ikemen.nro ] && [ -f out/nxconfig.nro ] && [ -f out/nxbrowser.nro ] || { echo "run ./build.sh first" >&2; exit 1; }
 
 if [ ! -f "$ZIP" ]; then
 	mkdir -p deps
@@ -19,7 +20,7 @@ if [ ! -f "$ZIP" ]; then
 fi
 
 SD=out/sd
-rm -rf "$SD" && mkdir -p "$SD/switch/ikemen/save" "$SD/switch/nxconfig" tmp/release
+rm -rf "$SD" && mkdir -p "$SD/switch/ikemen/save" "$SD/switch/nxconfig" "$SD/switch/nxbrowser" tmp/release
 rm -rf tmp/release/* && unzip -q "$ZIP" -d tmp/release
 REL=tmp/release
 [ -d "$REL/data" ] || REL=$(dirname "$(find tmp/release -maxdepth 3 -type d -name data | head -1)")
@@ -30,6 +31,7 @@ mkdir -p "$SD/switch/ikemen/sound"
 cp out/ikemen.nro "$SD/switch/ikemen/"
 cp sd/config.ini "$SD/switch/ikemen/save/config.ini"
 cp out/nxconfig.nro "$SD/switch/nxconfig/"
+cp out/nxbrowser.nro "$SD/switch/nxbrowser/"
 
 OUTZIP=out/ikemen-nx-v$VER-sd.zip
 rm -f "$OUTZIP"
