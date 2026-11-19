@@ -1,4 +1,4 @@
-From 829ee1c4fe9828432e10e6b699fed478a340814d Mon Sep 17 00:00:00 2001
+From a8bd328e22da0c11bfbea2cb2d8bd55c5fa607b2 Mon Sep 17 00:00:00 2001
 From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
 Date: Sat, 10 Oct 2026 23:14:06 -0300
 Subject: [PATCH 3/5] nx: read CNTPCT_EL0 instead of CNTVCT_EL0 in procyield

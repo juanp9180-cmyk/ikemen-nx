@@ -2,9 +2,9 @@
 # Fetch the upstream sources, apply the Ikemen NX patches and build the
 # patched Go toolchain. Run once (or again after updating the patches).
 #
-# Needs: git, curl, tar, an installed Go >= 1.24 (bootstraps Go 1.27.2) and
+# Needs: git, curl, tar, an installed Go >= 1.24 (bootstraps Go 1.27.4) and
 # devkitPro (see README). Everything is placed inside this repository:
-#   goroot/          Go 1.27.2 + patches/go     (patched toolchain)
+#   goroot/          Go 1.27.4 + patches/go     (patched toolchain)
 #   ikemen/          Ikemen GO v1.0.0 + patches/ikemen
 #   deps/go-sdl2/    go-sdl2 + patches/go-sdl2
 #   deps/libxmp/     libxmp 4.7.4 built for the Switch
@@ -13,7 +13,7 @@ set -eo pipefail
 cd "$(dirname "$0")"
 ROOT=$PWD
 
-GO_TAG=go1.27.2
+GO_TAG=go1.27.4
 IKEMEN_TAG=v1.0.0
 SDL2_VERSION=v0.5.0-alpha.7.0.20250220045537-7f43f67a3a12
 LIBXMP_VERSION=4.7.4

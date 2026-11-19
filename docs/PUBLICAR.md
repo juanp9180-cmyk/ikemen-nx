@@ -78,6 +78,6 @@ Si prefieres la web: en tu repositorio, entra a *Releases → Draft a new releas
    git -C ikemen format-patch -o ../patches/ikemen v1.0.0..HEAD
    ```
 
-   Haz lo mismo con `goroot`, partiendo de la etiqueta `go1.27.2`.
+   Haz lo mismo con `goroot`, partiendo de la etiqueta `go1.27.4`.
 3. Ejecuta `./build.sh` y `./package.sh`, haz commit, y crea la etiqueta y la release como en el paso 4. Sube a la release los tres `.nro` además del zip.
 4. **Al final**, actualiza `versions.ini` con las versiones nuevas y las URLs de los `.nro` de esa release, y súbelo (`git commit` + `git push`). Las apps y los juegos leen ese archivo para ofrecer la actualización: si lo subes antes que la release, ofrecerían una descarga que todavía no existe.

@@ -143,7 +143,7 @@ Requisitos:
 Pasos:
 
 ```bash
-./setup.sh     # descarga Go 1.27.2, Ikemen GO v1.0.0, go-sdl2 y libxmp, aplica patches/ y compila el toolchain
+./setup.sh     # descarga Go 1.27.4, Ikemen GO v1.0.0, go-sdl2 y libxmp, aplica patches/ y compila el toolchain
 ./build.sh     # out/ikemen.nro y out/nxconfig.nro
 ./package.sh   # out/ikemen-nx-vX.Y.Z-sd.zip (con los datos oficiales de Ikemen GO v1.0.0)
 ```
@@ -152,7 +152,7 @@ Si devkitPro no está en `/opt/devkitpro` ni en `C:\devkitPro`, define `DEVKITPR
 
 ## Cómo funciona
 
-- **Go en Horizon:** Ikemen se compila como `c-archive` para `linux/arm64` con un Go 1.27.2 parcheado (`patches/go`). En vez de `svc` de Linux, el runtime llama a `horizon/horizon.c`, que implementa sobre libnx las llamadas que Go necesita:
+- **Go en Horizon:** Ikemen se compila como `c-archive` para `linux/arm64` con un Go 1.27.4 parcheado (`patches/go`). En vez de `svc` de Linux, el runtime llama a `horizon/horizon.c`, que implementa sobre libnx las llamadas que Go necesita:
   - memoria: un bloque fijo para el heap de Go;
   - hilos, `futex` y relojes;
   - archivos y directorios, con un caché de lectura porque cada lectura chica es una llamada IPC lenta en la Switch;

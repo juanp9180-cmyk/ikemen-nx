@@ -1,4 +1,4 @@
-From 71089c2be886532ae5ec66168eb992a319849b49 Mon Sep 17 00:00:00 2001
+From 0f1330096de05de1ecb1f4e43106720b45d5a59e Mon Sep 17 00:00:00 2001
 From: Ikemen NX contributors <ikemen-nx@users.noreply.github.com>
 Date: Sat, 10 Oct 2026 21:27:18 -0300
 Subject: [PATCH 2/5] nx: don't reuse the g0 stack when already on it

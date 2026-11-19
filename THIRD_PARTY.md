@@ -5,7 +5,7 @@ The `.nro` files are linked statically with the projects below. `setup.sh` downl
 | Component | Version | License | Source |
 |---|---|---|---|
 | Ikemen GO | v1.0.0 + `patches/ikemen` | MIT | https://github.com/ikemen-engine/Ikemen-GO |
-| Go (runtime and standard library) | go1.27.2 + `patches/go` | BSD-3-Clause | https://go.googlesource.com/go |
+| Go (runtime and standard library) | go1.27.4 + `patches/go` | BSD-3-Clause | https://go.googlesource.com/go |
 | go-sdl2 | v0.5.0-alpha.7.0.20250220045537-7f43f67a3a12 + `patches/go-sdl2` | BSD-3-Clause | https://github.com/veandco/go-sdl2 |
 | Go modules used by Ikemen GO | see `ikemen/go.sum` | various (MIT, BSD, Apache-2.0) | Go module proxy |
 | libxmp | 4.7.4 | MIT | https://github.com/libxmp/libxmp |

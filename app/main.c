@@ -7,7 +7,7 @@
 #include "libikemen.h"
 #include "nxupdate.h"
 
-#define IKEMEN_NX_VERSION_STR "Ikemen NX v0.3.1"
+#define IKEMEN_NX_VERSION_STR "Ikemen NX v0.3.2"
 
 static char log_path[FS_MAX_PATH + 32] = "sdmc:/switch/ikemen/go_stdout.log";
 
